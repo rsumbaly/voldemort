@@ -231,6 +231,25 @@
     </junitreport>
   </target>
 
+    <target name="findbugs" depends="jar">
+    <taskdef name="findbugs" classname="edu.umd.cs.findbugs.anttask.FindBugsTask"
+             classpath="${findbugs.lib}/findbugs-ant-1.3.9.jar" />
+
+    <findbugs output="html"
+              outputFile="${dist.dir}/voldemort-findbugs.html"
+	      jvmargs="-Xmx512m">
+      <pluginList/>
+      <classpath>
+	<fileset dir="${findbugs.lib}">
+	  <include name="**/*.jar"/>
+  	</fileset>
+      </classpath>
+      <auxClasspath refid="main-classpath"/>
+      <sourcePath path="${src.dir}" />
+      <class location="${classes.dir}"/>
+    </findbugs>
+  </target>
+
   <target name="ec2testing-junit" depends="contrib-jar" description="Run EC2 testing contrib junit tests.">
     <copy todir="${testclasses.dir}">
       <fileset dir="${contrib.root.dir}/ec2-testing/resources" />
