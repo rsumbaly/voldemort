@@ -6,16 +6,15 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
-import krati.cds.array.DataArray;
-import krati.cds.impl.segment.SegmentFactory;
-import krati.cds.impl.store.DynamicDataStore;
-import krati.util.FnvHashFunction;
+import krati.core.segment.MemorySegmentFactory;
+import krati.core.segment.WriteBufferSegmentFactory;
+import krati.store.IndexedDataStore;
 
 import org.apache.log4j.Logger;
 
@@ -39,24 +38,27 @@ public class KratiStorageEngine implements StorageEngine<ByteArray, byte[]> {
 
     private static final Logger logger = Logger.getLogger(KratiStorageEngine.class);
     private final String name;
-    private final DynamicDataStore datastore;
+    private final IndexedDataStore datastore;
     private final StripedLock locks;
 
     public KratiStorageEngine(String name,
-                              SegmentFactory segmentFactory,
-                              int segmentFileSizeMB,
+                              int batchSize,
+                              int indexSegmentFileSizeMB,
+                              int storeSegmentFileSizeMB,
                               int lockStripes,
-                              double hashLoadFactor,
                               int initLevel,
                               File dataDirectory) {
         this.name = Utils.notNull(name);
         try {
-            this.datastore = new DynamicDataStore(dataDirectory,
+            this.datastore = new IndexedDataStore(dataDirectory,
+                                                  batchSize,
+                                                  5,
                                                   initLevel,
-                                                  segmentFileSizeMB,
-                                                  segmentFactory,
-                                                  hashLoadFactor,
-                                                  new FnvHashFunction());
+                                                  indexSegmentFileSizeMB,
+                                                  new MemorySegmentFactory(),
+                                                  initLevel,
+                                                  storeSegmentFileSizeMB,
+                                                  new WriteBufferSegmentFactory(storeSegmentFileSizeMB));
             this.locks = new StripedLock(lockStripes);
         } catch(Exception e) {
             throw new VoldemortException("Failure initializing store.", e);
@@ -104,46 +106,11 @@ public class KratiStorageEngine implements StorageEngine<ByteArray, byte[]> {
     }
 
     public ClosableIterator<Pair<ByteArray, Versioned<byte[]>>> entries() {
-        List<Pair<ByteArray, Versioned<byte[]>>> returnedList = new ArrayList<Pair<ByteArray, Versioned<byte[]>>>();
-        DataArray array = datastore.getDataArray();
-        for(int index = 0; index < array.length(); index++) {
-            byte[] returnedBytes = array.getData(index);
-            if(returnedBytes != null) {
-                // Extract the key value pair from this
-                // TODO: Move to DynamicDataStore code
-                ByteBuffer bb = ByteBuffer.wrap(returnedBytes);
-                int cnt = bb.getInt();
-                if(cnt > 0) {
-                    int keyLen = bb.getInt();
-                    byte[] key = new byte[keyLen];
-                    bb.get(key);
-
-                    int valueLen = bb.getInt();
-                    byte[] value = new byte[valueLen];
-                    bb.get(value);
-
-                    List<Versioned<byte[]>> versions;
-                    try {
-                        versions = disassembleValues(value);
-                    } catch(IOException e) {
-                        versions = null;
-                    }
-
-                    if(versions != null) {
-                        Iterator<Versioned<byte[]>> iterVersions = versions.iterator();
-                        while(iterVersions.hasNext()) {
-                            Versioned<byte[]> currentVersion = iterVersions.next();
-                            returnedList.add(Pair.create(new ByteArray(key), currentVersion));
-                        }
-                    }
-                }
-            }
-        }
-        return new KratiClosableIterator(returnedList);
+        return new KratiEntriesIterator(datastore.iterator());
     }
 
     public ClosableIterator<ByteArray> keys() {
-        return StoreUtils.keys(entries());
+        return new KratiKeysIterator(datastore.keyIterator());
     }
 
     public boolean delete(ByteArray key, Version maxVersion) throws VoldemortException {
@@ -279,13 +246,77 @@ public class KratiStorageEngine implements StorageEngine<ByteArray, byte[]> {
         return returnList;
     }
 
-    private class KratiClosableIterator implements
+    private class KratiEntriesIterator implements
             ClosableIterator<Pair<ByteArray, Versioned<byte[]>>> {
 
-        private Iterator<Pair<ByteArray, Versioned<byte[]>>> iter;
+        private Iterator<Entry<byte[], byte[]>> iterator;
+        private ByteArray currentKey;
+        private Iterator<Versioned<byte[]>> currentValues;
 
-        public KratiClosableIterator(List<Pair<ByteArray, Versioned<byte[]>>> list) {
-            iter = list.iterator();
+        public KratiEntriesIterator(Iterator<Entry<byte[], byte[]>> iterator) {
+            this.iterator = iterator;
+        }
+
+        public void close() {
+        // Nothing to close here
+        }
+
+        private boolean hasNextInCurrentValues() {
+            return currentValues != null && currentValues.hasNext();
+        }
+
+        public boolean hasNext() {
+            return hasNextInCurrentValues() || iterator.hasNext();
+        }
+
+        private Pair<ByteArray, Versioned<byte[]>> nextInCurrentValues() {
+            Versioned<byte[]> item = currentValues.next();
+            return Pair.create(currentKey, item);
+        }
+
+        public Pair<ByteArray, Versioned<byte[]>> next() {
+            if(hasNextInCurrentValues()) {
+                return nextInCurrentValues();
+            } else {
+                // keep trying to get a next, until we find one (they could get
+                // removed)
+                while(true) {
+                    Entry<byte[], byte[]> entry = iterator.next();
+
+                    List<Versioned<byte[]>> list;
+                    try {
+                        list = disassembleValues(entry.getValue());
+                    } catch(IOException e) {
+                        list = new ArrayList<Versioned<byte[]>>();
+                    }
+                    synchronized(list) {
+                        // okay we may have gotten an empty list, if so try
+                        // again
+                        if(list.size() == 0)
+                            continue;
+
+                        // grab a snapshot of the list while we have exclusive
+                        // access
+                        currentValues = new ArrayList<Versioned<byte[]>>(list).iterator();
+                    }
+                    currentKey = new ByteArray(entry.getKey());
+                    return nextInCurrentValues();
+                }
+            }
+        }
+
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
+
+    }
+
+    private class KratiKeysIterator implements ClosableIterator<ByteArray> {
+
+        private Iterator<byte[]> iter;
+
+        public KratiKeysIterator(Iterator<byte[]> iterator) {
+            iter = iterator;
         }
 
         public void close() {
@@ -296,13 +327,12 @@ public class KratiStorageEngine implements StorageEngine<ByteArray, byte[]> {
             return iter.hasNext();
         }
 
-        public Pair<ByteArray, Versioned<byte[]>> next() {
-            return iter.next();
+        public ByteArray next() {
+            return new ByteArray(iter.next());
         }
 
         public void remove() {
-            Pair<ByteArray, Versioned<byte[]>> currentPair = next();
-            delete(currentPair.getFirst(), currentPair.getSecond().getVersion());
+            throw new UnsupportedOperationException();
         }
 
     }

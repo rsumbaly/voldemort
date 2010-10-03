@@ -2,9 +2,6 @@ package voldemort.store.krati;
 
 import java.io.File;
 
-import krati.cds.impl.segment.MappedSegmentFactory;
-import krati.cds.impl.segment.SegmentFactory;
-
 import org.apache.log4j.Logger;
 
 import voldemort.server.VoldemortConfig;
@@ -12,7 +9,6 @@ import voldemort.store.StorageConfiguration;
 import voldemort.store.StorageEngine;
 import voldemort.utils.ByteArray;
 import voldemort.utils.Props;
-import voldemort.utils.ReflectUtils;
 
 public class KratiStorageConfiguration implements StorageConfiguration {
 
@@ -21,24 +17,21 @@ public class KratiStorageConfiguration implements StorageConfiguration {
     private static Logger logger = Logger.getLogger(KratiStorageConfiguration.class);
 
     private final String dataDirectory;
-    private final int lockStripes;
-    private final int segmentFileSizeMb;
-    private final int initLevel;
-    private final double hashLoadFactor;
+    private final int lockStripes, storeSegmentFileSizeMb, indexSegmentFileSizeMb, initLevel,
+            batchSize;
     private final Object lock = new Object();
-    private final Class<?> factoryClass;
 
     public KratiStorageConfiguration(VoldemortConfig config) {
         Props props = config.getAllProps();
         File kratiDir = new File(config.getDataDirectory(), "krati");
         kratiDir.mkdirs();
         this.dataDirectory = kratiDir.getAbsolutePath();
-        this.segmentFileSizeMb = props.getInt("krati.segment.filesize.mb", 256);
-        this.hashLoadFactor = props.getDouble("krati.load.factor", 0.75);
-        this.initLevel = props.getInt("krati.initlevel", 2);
+        this.batchSize = props.getInt("krati.batch.size", 10000);
+        this.indexSegmentFileSizeMb = props.getInt("krati.index.segment.mb", 32);
+        this.storeSegmentFileSizeMb = props.getInt("krati.store.segment.mb", 256);
+        this.initLevel = props.getInt("krati.init.level", 2);
         this.lockStripes = props.getInt("krati.lock.stripes", 50);
-        this.factoryClass = ReflectUtils.loadClass(props.getString("krati.segment.factory.class",
-                                                                   MappedSegmentFactory.class.getName()));
+
     }
 
     public void close() {}
@@ -51,12 +44,11 @@ public class KratiStorageConfiguration implements StorageConfiguration {
                 storeDir.mkdirs();
             }
 
-            SegmentFactory segmentFactory = (SegmentFactory) ReflectUtils.callConstructor(factoryClass);
             return new KratiStorageEngine(storeName,
-                                          segmentFactory,
-                                          segmentFileSizeMb,
+                                          batchSize,
+                                          indexSegmentFileSizeMb,
+                                          storeSegmentFileSizeMb,
                                           lockStripes,
-                                          hashLoadFactor,
                                           initLevel,
                                           storeDir);
         }

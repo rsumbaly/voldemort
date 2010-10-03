@@ -2,7 +2,6 @@ package voldemort.store.krati;
 
 import java.io.File;
 
-import krati.cds.impl.segment.MappedSegmentFactory;
 import voldemort.TestUtils;
 import voldemort.store.AbstractStorageEngineTest;
 import voldemort.store.StorageEngine;
@@ -18,13 +17,7 @@ public class KratiStorageEngineTest extends AbstractStorageEngineTest {
         File storeDir = TestUtils.createTempDir();
         storeDir.mkdirs();
         storeDir.deleteOnExit();
-        this.store = new KratiStorageEngine("storeName",
-                                            new MappedSegmentFactory(),
-                                            10,
-                                            10,
-                                            0.75,
-                                            0,
-                                            storeDir);
+        this.store = new KratiStorageEngine("storeName", 1000, 8, 8, 50, 2, storeDir);
     }
 
     @Override
