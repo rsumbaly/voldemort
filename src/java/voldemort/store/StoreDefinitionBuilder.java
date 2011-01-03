@@ -4,7 +4,7 @@ import java.util.HashMap;
 
 import voldemort.client.RoutingTier;
 import voldemort.serialization.SerializerDefinition;
-import voldemort.store.views.View;
+import voldemort.store.slop.strategy.HintedHandoffStrategyType;
 import voldemort.utils.Utils;
 
 /**
@@ -19,6 +19,7 @@ public class StoreDefinitionBuilder {
     private String type = null;
     private SerializerDefinition keySerializer = null;
     private SerializerDefinition valueSerializer = null;
+    private SerializerDefinition transformsSerializer = null;
     private RoutingTier routingPolicy = null;
     private int replicationFactor = -1;
     private Integer preferredWrites = null;
@@ -29,10 +30,13 @@ public class StoreDefinitionBuilder {
     private Integer retentionScanThrottleRate = null;
     private String routingStrategyType = null;
     private String viewOf = null;
-    private View<?, ?, ?> view = null;
     private HashMap<Integer, Integer> zoneReplicationFactor = null;
     private Integer zoneCountReads;
     private Integer zoneCountWrites;
+    private String view = null;
+    private String serializerFactory = null;
+    private HintedHandoffStrategyType hintedHandoffStrategy = null;
+    private Integer hintPrefListSize = null;
 
     public String getName() {
         return Utils.notNull(name);
@@ -67,6 +71,15 @@ public class StoreDefinitionBuilder {
 
     public StoreDefinitionBuilder setValueSerializer(SerializerDefinition valueSerializer) {
         this.valueSerializer = Utils.notNull(valueSerializer);
+        return this;
+    }
+
+    public SerializerDefinition getTransformsSerializer() {
+        return this.transformsSerializer;
+    }
+
+    public StoreDefinitionBuilder setTransformsSerializer(SerializerDefinition transformsSerializer) {
+        this.transformsSerializer = transformsSerializer;
         return this;
     }
 
@@ -176,12 +189,21 @@ public class StoreDefinitionBuilder {
         return this;
     }
 
-    public View<?, ?, ?> getView() {
+    public String getView() {
         return view;
     }
 
-    public StoreDefinitionBuilder setView(View<?, ?, ?> valueTransformation) {
+    public StoreDefinitionBuilder setView(String valueTransformation) {
         this.view = valueTransformation;
+        return this;
+    }
+
+    public String getSerializerFactory() {
+        return this.serializerFactory;
+    }
+
+    public StoreDefinitionBuilder setSerializerFactory(String factory) {
+        this.serializerFactory = factory;
         return this;
     }
 
@@ -212,11 +234,30 @@ public class StoreDefinitionBuilder {
         return this;
     }
 
+    public HintedHandoffStrategyType getHintedHandoffStrategy() {
+        return hintedHandoffStrategy;
+    }
+
+    public StoreDefinitionBuilder setHintedHandoffStrategy(HintedHandoffStrategyType hintedHandoffStrategy) {
+        this.hintedHandoffStrategy = hintedHandoffStrategy;
+        return this;
+    }
+
+    public Integer getHintPrefListSize() {
+        return hintPrefListSize;
+    }
+
+    public StoreDefinitionBuilder setHintPrefListSize(Integer hintPrefListSize) {
+        this.hintPrefListSize = hintPrefListSize;
+        return this;
+    }
+
     public StoreDefinition build() {
         return new StoreDefinition(this.getName(),
                                    this.getType(),
                                    this.getKeySerializer(),
                                    this.getValueSerializer(),
+                                   this.getTransformsSerializer(),
                                    this.getRoutingPolicy(),
                                    this.getRoutingStrategyType(),
                                    this.getReplicationFactor(),
@@ -230,7 +271,9 @@ public class StoreDefinitionBuilder {
                                    this.getZoneCountReads(),
                                    this.getZoneCountWrites(),
                                    this.getRetentionPeriodDays(),
-                                   this.getRetentionScanThrottleRate());
+                                   this.getRetentionScanThrottleRate(),
+                                   this.getSerializerFactory(),
+                                   this.getHintedHandoffStrategy(),
+                                   this.getHintPrefListSize());
     }
-
 }

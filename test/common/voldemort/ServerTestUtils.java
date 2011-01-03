@@ -17,10 +17,12 @@
 package voldemort;
 
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.StringReader;
 import java.net.ServerSocket;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Properties;
@@ -59,6 +61,8 @@ import voldemort.store.http.HttpStore;
 import voldemort.store.memory.InMemoryStorageConfiguration;
 import voldemort.store.memory.InMemoryStorageEngine;
 import voldemort.store.metadata.MetadataStore;
+import voldemort.store.slop.Slop;
+import voldemort.store.slop.strategy.HintedHandoffStrategyType;
 import voldemort.store.socket.SocketStoreFactory;
 import voldemort.utils.ByteArray;
 import voldemort.utils.ByteUtils;
@@ -78,7 +82,7 @@ public class ServerTestUtils {
 
     public static StoreRepository getStores(String storeName, String clusterXml, String storesXml) {
         StoreRepository repository = new StoreRepository();
-        Store<ByteArray, byte[]> store = new InMemoryStorageEngine<ByteArray, byte[]>(storeName);
+        Store<ByteArray, byte[], byte[]> store = new InMemoryStorageEngine<ByteArray, byte[], byte[]>(storeName);
         repository.addLocalStore(store);
         repository.addRoutedStore(store);
 
@@ -150,33 +154,33 @@ public class ServerTestUtils {
         return socketService;
     }
 
-    public static Store<ByteArray, byte[]> getSocketStore(SocketStoreFactory storeFactory,
-                                                          String storeName,
-                                                          int port) {
+    public static Store<ByteArray, byte[], byte[]> getSocketStore(SocketStoreFactory storeFactory,
+                                                                  String storeName,
+                                                                  int port) {
         return getSocketStore(storeFactory, storeName, port, RequestFormatType.VOLDEMORT_V1);
     }
 
-    public static Store<ByteArray, byte[]> getSocketStore(SocketStoreFactory storeFactory,
-                                                          String storeName,
-                                                          int port,
-                                                          RequestFormatType type) {
+    public static Store<ByteArray, byte[], byte[]> getSocketStore(SocketStoreFactory storeFactory,
+                                                                  String storeName,
+                                                                  int port,
+                                                                  RequestFormatType type) {
         return getSocketStore(storeFactory, storeName, "localhost", port, type);
     }
 
-    public static Store<ByteArray, byte[]> getSocketStore(SocketStoreFactory storeFactory,
-                                                          String storeName,
-                                                          String host,
-                                                          int port,
-                                                          RequestFormatType type) {
+    public static Store<ByteArray, byte[], byte[]> getSocketStore(SocketStoreFactory storeFactory,
+                                                                  String storeName,
+                                                                  String host,
+                                                                  int port,
+                                                                  RequestFormatType type) {
         return getSocketStore(storeFactory, storeName, host, port, type, false);
     }
 
-    public static Store<ByteArray, byte[]> getSocketStore(SocketStoreFactory storeFactory,
-                                                          String storeName,
-                                                          String host,
-                                                          int port,
-                                                          RequestFormatType type,
-                                                          boolean isRouted) {
+    public static Store<ByteArray, byte[], byte[]> getSocketStore(SocketStoreFactory storeFactory,
+                                                                  String storeName,
+                                                                  String host,
+                                                                  int port,
+                                                                  RequestFormatType type,
+                                                                  boolean isRouted) {
         RequestRoutingType requestRoutingType = RequestRoutingType.getRequestRoutingType(isRouted,
                                                                                          false);
         return storeFactory.create(storeName, host, port, type, requestRoutingType);
@@ -279,11 +283,13 @@ public class ServerTestUtils {
     }
 
     public static MetadataStore createMetadataStore(Cluster cluster, List<StoreDefinition> storeDefs) {
-        Store<String, String> innerStore = new InMemoryStorageEngine<String, String>("inner-store");
+        Store<String, String, String> innerStore = new InMemoryStorageEngine<String, String, String>("inner-store");
         innerStore.put(MetadataStore.CLUSTER_KEY,
-                       new Versioned<String>(new ClusterMapper().writeCluster(cluster)));
+                       new Versioned<String>(new ClusterMapper().writeCluster(cluster)),
+                       null);
         innerStore.put(MetadataStore.STORES_KEY,
-                       new Versioned<String>(new StoreDefinitionsMapper().writeStoreList(storeDefs)));
+                       new Versioned<String>(new StoreDefinitionsMapper().writeStoreList(storeDefs)),
+                       null);
 
         return new MetadataStore(innerStore, 0);
     }
@@ -329,6 +335,39 @@ public class ServerTestUtils {
                                            .build();
     }
 
+    public static StoreDefinition getStoreDef(String storeName,
+                                              int preads,
+                                              int rreads,
+                                              int pwrites,
+                                              int rwrites,
+                                              int zonereads,
+                                              int zonewrites,
+                                              HashMap<Integer, Integer> zoneReplicationFactor,
+                                              HintedHandoffStrategyType hhType,
+                                              String strategyType) {
+        SerializerDefinition serDef = new SerializerDefinition("string");
+        int replicationFactor = 0;
+        for(Integer repFac: zoneReplicationFactor.values()) {
+            replicationFactor += repFac;
+        }
+        return new StoreDefinitionBuilder().setName(storeName)
+                                           .setType(InMemoryStorageConfiguration.TYPE_NAME)
+                                           .setKeySerializer(serDef)
+                                           .setValueSerializer(serDef)
+                                           .setRoutingPolicy(RoutingTier.SERVER)
+                                           .setRoutingStrategyType(strategyType)
+                                           .setPreferredReads(preads)
+                                           .setRequiredReads(rreads)
+                                           .setHintedHandoffStrategy(hhType)
+                                           .setZoneCountReads(zonereads)
+                                           .setZoneCountWrites(zonewrites)
+                                           .setReplicationFactor(replicationFactor)
+                                           .setZoneReplicationFactor(zoneReplicationFactor)
+                                           .setPreferredWrites(pwrites)
+                                           .setRequiredWrites(rwrites)
+                                           .build();
+    }
+
     public static HashMap<ByteArray, byte[]> createRandomKeyValuePairs(int numKeys) {
         HashMap<ByteArray, byte[]> map = new HashMap<ByteArray, byte[]>();
         for(int cnt = 0; cnt <= numKeys; cnt++) {
@@ -342,6 +381,41 @@ public class ServerTestUtils {
         return map;
     }
 
+    public static List<Versioned<Slop>> createRandomSlops(int nodeId,
+                                                          int numKeys,
+                                                          String... storeNames) {
+        List<Versioned<Slop>> slops = new ArrayList<Versioned<Slop>>();
+
+        for(int cnt = 0; cnt < numKeys; cnt++) {
+            int storeId = (int) Math.round(Math.random() * (storeNames.length - 1));
+            int operation = (int) Math.round(Math.random() + 1);
+
+            Slop.Operation operationType;
+            if(operation == 1)
+                operationType = Slop.Operation.PUT;
+            else
+                operationType = Slop.Operation.DELETE;
+
+            long keyInt = (long) (Math.random() * 1000000000L);
+            ByteArray key = new ByteArray(ByteUtils.getBytes("" + keyInt, "UTF-8"));
+            byte[] value = ByteUtils.getBytes("value-" + keyInt, "UTF-8");
+
+            Versioned<Slop> versioned = Versioned.value(new Slop(storeNames[storeId],
+                                                                 operationType,
+                                                                 key,
+                                                                 value,
+                                                                 null,
+                                                                 nodeId,
+                                                                 new Date()));
+            slops.add(versioned);
+            // Adding twice so as check if ObsoleteVersionExceptions are
+            // swallowed correctly
+            slops.add(versioned);
+        }
+
+        return slops;
+    }
+
     public static HashMap<String, String> createRandomKeyValueString(int numKeys) {
         HashMap<String, String> map = new HashMap<String, String>();
         for(int cnt = 0; cnt <= numKeys; cnt++) {
@@ -350,6 +424,37 @@ public class ServerTestUtils {
         }
 
         return map;
+    }
+
+    public static VoldemortConfig createServerConfigWithDefs(boolean useNio,
+                                                             int nodeId,
+                                                             String baseDir,
+                                                             Cluster cluster,
+                                                             ArrayList<StoreDefinition> stores,
+                                                             Properties properties)
+            throws IOException {
+
+        File clusterXml = new File(TestUtils.createTempDir(), "cluster.xml");
+        File storesXml = new File(TestUtils.createTempDir(), "stores.xml");
+
+        ClusterMapper clusterMapper = new ClusterMapper();
+        StoreDefinitionsMapper storeDefMapper = new StoreDefinitionsMapper();
+
+        FileWriter writer = new FileWriter(clusterXml);
+        writer.write(clusterMapper.writeCluster(cluster));
+        writer.close();
+
+        writer = new FileWriter(storesXml);
+        writer.write(storeDefMapper.writeStoreList(stores));
+        writer.close();
+
+        return createServerConfig(useNio,
+                                  nodeId,
+                                  baseDir,
+                                  clusterXml.getAbsolutePath(),
+                                  storesXml.getAbsolutePath(),
+                                  properties);
+
     }
 
     public static VoldemortConfig createServerConfig(boolean useNio,
@@ -434,13 +539,13 @@ public class ServerTestUtils {
     public static void waitForServerStart(SocketStoreFactory socketStoreFactory, Node node) {
         boolean success = false;
         int retries = 10;
-        Store<ByteArray, ?> store = null;
+        Store<ByteArray, ?, ?> store = null;
         while(retries-- > 0) {
             store = ServerTestUtils.getSocketStore(socketStoreFactory,
                                                    MetadataStore.METADATA_STORE_NAME,
                                                    node.getSocketPort());
             try {
-                store.get(new ByteArray(MetadataStore.CLUSTER_KEY.getBytes()));
+                store.get(new ByteArray(MetadataStore.CLUSTER_KEY.getBytes()), null);
                 success = true;
             } catch(UnreachableStoreException e) {
                 store.close();

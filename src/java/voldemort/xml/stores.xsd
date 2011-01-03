@@ -33,6 +33,9 @@
 			<xs:element name="required-writes" type="xs:positiveInteger" />
 			<xs:element name="zone-count-reads" type="xs:nonNegativeInteger" minOccurs="0" maxOccurs="1" />
 			<xs:element name="zone-count-writes" type="xs:nonNegativeInteger" minOccurs="0" maxOccurs="1" />
+            <xs:element name="enable-hinted-handoff" type="xs:boolean" minOccurs="0" maxOccurs="1" />
+            <xs:element name="hinted-handoff-strategy" type="xs:token" minOccurs="0" maxOccurs="1" />
+            <xs:element name="hint-preflist-size" type="xs:token" minOccurs="0" maxOccurs="1" />
 			<xs:element name="key-serializer" type="serializer" />
 			<xs:element name="value-serializer" type="serializer" />
 			<xs:element name="retention-days" type="xs:nonNegativeInteger"
@@ -69,7 +72,9 @@
 			<xs:element name="preferred-writes" type="xs:positiveInteger" minOccurs="0" maxOccurs="1"/>
 			<xs:element name="required-writes" type="xs:positiveInteger" minOccurs="0" maxOccurs="1"/>
 			<xs:element name="value-serializer" type="serializer" minOccurs="0" maxOccurs="1" />
+			<xs:element name="transforms-serializer" type="serializer" minOccurs="0" maxOccurs="1" />
 			<xs:element name="view-class" type="xs:token" minOccurs="1" maxOccurs="1" />
+			<xs:element name="view-serializer-factory" type="xs:token" minOccurs="0" maxOccurs="1" />
 		</xs:all>
 	</xs:complexType>
 

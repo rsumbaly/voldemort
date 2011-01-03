@@ -18,12 +18,15 @@ import org.apache.commons.httpclient.MultiThreadedHttpConnectionManager;
 import org.apache.commons.io.FileUtils;
 import org.apache.log4j.Logger;
 
+import voldemort.client.protocol.admin.AdminClient;
+import voldemort.client.protocol.admin.AdminClientConfig;
 import voldemort.cluster.Cluster;
 import voldemort.utils.CmdUtils;
 import voldemort.utils.Time;
 import voldemort.xml.ClusterMapper;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableSet;
 
 /**
  * A helper class to invoke the FETCH and SWAP operations on a remote store via
@@ -44,14 +47,16 @@ public abstract class StoreSwapper {
         this.executor = executor;
     }
 
-    public void swapStoreData(String storeName, String basePath) {
-        List<String> fetched = invokeFetch(storeName, basePath);
+    public void swapStoreData(String storeName, String basePath, long pushVersion) {
+        List<String> fetched = invokeFetch(storeName, basePath, pushVersion);
         invokeSwap(storeName, fetched);
     }
 
-    protected abstract List<String> invokeFetch(final String storeName, final String basePath);
+    protected abstract List<String> invokeFetch(String storeName, String basePath, long pushVersion);
 
     protected abstract void invokeSwap(String storeName, List<String> fetchFiles);
+
+    protected abstract void invokeRollback(String storeName, long pushVersion);
 
     public static void main(String[] args) throws Exception {
         OptionParser parser = new OptionParser();
@@ -74,6 +79,9 @@ public abstract class StoreSwapper {
               .ofType(Integer.class);
         parser.accepts("rollback", "Rollback store to older version");
         parser.accepts("admin", "Use admin services. Default = false");
+        parser.accepts("push-version", "[REQUIRED] Version of push to fetch / rollback-to")
+              .withRequiredArg()
+              .ofType(Long.class);
 
         OptionSet options = parser.parse(args);
         if(options.has("help")) {
@@ -81,11 +89,13 @@ public abstract class StoreSwapper {
             System.exit(0);
         }
 
-        Set<String> missing = CmdUtils.missing(options, "cluster", "name", "file");
+        Set<String> missing = CmdUtils.missing(options, "cluster", "name", "file", "push-version");
         if(missing.size() > 0) {
-            System.err.println("Missing required arguments: " + Joiner.on(", ").join(missing));
-            parser.printHelpOn(System.err);
-            System.exit(1);
+            if(!(missing.equals(ImmutableSet.of("file")) && (options.has("rollback")))) {
+                System.err.println("Missing required arguments: " + Joiner.on(", ").join(missing));
+                parser.printHelpOn(System.err);
+                System.exit(1);
+            }
         }
 
         String clusterXml = (String) options.valueOf("cluster");
@@ -97,13 +107,17 @@ public abstract class StoreSwapper {
                                          (int) (3 * Time.SECONDS_PER_HOUR * Time.MS_PER_SECOND));
         boolean useAdminServices = options.has("admin");
         boolean rollbackStore = options.has("rollback");
+        Long pushVersion = (Long) options.valueOf("push-version");
 
         String clusterStr = FileUtils.readFileToString(new File(clusterXml));
         Cluster cluster = new ClusterMapper().readCluster(new StringReader(clusterStr));
         ExecutorService executor = Executors.newFixedThreadPool(10);
         StoreSwapper swapper = null;
+        AdminClient adminClient = null;
+
         if(useAdminServices) {
-            swapper = new AdminStoreSwapper(cluster, executor, timeoutMs);
+            adminClient = new AdminClient(cluster, new AdminClientConfig());
+            swapper = new AdminStoreSwapper(cluster, executor, adminClient, timeoutMs);
         } else {
             HttpConnectionManager manager = new MultiThreadedHttpConnectionManager();
 
@@ -116,26 +130,23 @@ public abstract class StoreSwapper {
 
             swapper = new HttpStoreSwapper(cluster, executor, client, mgmtPath);
         }
-        if(rollbackStore) {
-            if(useAdminServices) {
-                long start = System.currentTimeMillis();
-                ((AdminStoreSwapper) swapper).invokeRollback(storeName);
-                long end = System.currentTimeMillis();
-                logger.info("Rollback succeeded on all nodes in "
-                            + ((end - start) / Time.MS_PER_SECOND) + " seconds.");
-            } else {
-                System.err.println("Rollback supported only using admin services");
-                System.exit(1);
-            }
-        } else {
+
+        try {
             long start = System.currentTimeMillis();
-            swapper.swapStoreData(storeName, filePath);
+            if(rollbackStore) {
+                swapper.invokeRollback(storeName, pushVersion.longValue());
+            } else {
+                swapper.swapStoreData(storeName, filePath, pushVersion.longValue());
+            }
             long end = System.currentTimeMillis();
-            logger.info("Swap succeeded on all nodes in " + ((end - start) / Time.MS_PER_SECOND)
+            logger.info("Succeeded on all nodes in " + ((end - start) / Time.MS_PER_SECOND)
                         + " seconds.");
+        } finally {
+            if(useAdminServices && adminClient != null)
+                adminClient.stop();
+            executor.shutdownNow();
+            executor.awaitTermination(1, TimeUnit.SECONDS);
         }
-        executor.shutdownNow();
-        executor.awaitTermination(1, TimeUnit.SECONDS);
         System.exit(0);
     }
 }

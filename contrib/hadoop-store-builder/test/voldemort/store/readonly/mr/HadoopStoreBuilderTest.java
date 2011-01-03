@@ -36,6 +36,7 @@ import voldemort.ServerTestUtils;
 import voldemort.TestUtils;
 import voldemort.client.RoutingTier;
 import voldemort.cluster.Cluster;
+import voldemort.routing.RoutingStrategyFactory;
 import voldemort.routing.RoutingStrategyType;
 import voldemort.serialization.DefaultSerializerFactory;
 import voldemort.serialization.Serializer;
@@ -46,8 +47,11 @@ import voldemort.store.StoreDefinitionBuilder;
 import voldemort.store.readonly.BinarySearchStrategy;
 import voldemort.store.readonly.ReadOnlyStorageConfiguration;
 import voldemort.store.readonly.ReadOnlyStorageEngine;
+import voldemort.store.readonly.ReadOnlyStorageFormat;
+import voldemort.store.readonly.ReadOnlyStorageMetadata;
 import voldemort.store.readonly.checksum.CheckSumTests;
 import voldemort.store.readonly.checksum.CheckSum.CheckSumType;
+import voldemort.store.readonly.fetcher.HdfsFetcher;
 import voldemort.store.serialized.SerializingStore;
 import voldemort.utils.ByteUtils;
 import voldemort.versioning.Versioned;
@@ -194,6 +198,15 @@ public class HadoopStoreBuilderTest extends TestCase {
 
         // Check if checkSum is generated in outputDir
         File nodeFile = new File(outputDir, "node-0");
+
+        // Check if metadata file exists
+        File metadataFile = new File(nodeFile, ".metadata");
+        assertTrue(metadataFile.exists());
+
+        ReadOnlyStorageMetadata metadata = new ReadOnlyStorageMetadata(metadataFile);
+        assertEquals(metadata.get(ReadOnlyStorageMetadata.FORMAT),
+                     ReadOnlyStorageFormat.READONLY_V1.getCode());
+
         File checkSumFile = new File(nodeFile, "md5checkSum.txt");
         assertTrue(checkSumFile.exists());
 
@@ -202,30 +215,36 @@ public class HadoopStoreBuilderTest extends TestCase {
         DataInputStream in = new DataInputStream(new FileInputStream(checkSumFile));
         in.read(md5);
         in.close();
-        checkSumFile.delete();
 
         byte[] checkSumBytes = CheckSumTests.calculateCheckSum(nodeFile.listFiles(),
                                                                CheckSumType.MD5);
         assertEquals(0, ByteUtils.compare(checkSumBytes, md5));
 
-        // rename files
+        // check if fetching works
+        HdfsFetcher fetcher = new HdfsFetcher();
+
+        // Fetch to version directory
         File versionDir = new File(storeDir, "version-0");
-        versionDir.mkdirs();
-        assertTrue("Rename failed.", nodeFile.renameTo(versionDir));
+        fetcher.fetch(nodeFile.getAbsolutePath(), versionDir.getAbsolutePath());
+        assertTrue(versionDir.exists());
 
         // open store
         @SuppressWarnings("unchecked")
         Serializer<Object> serializer = (Serializer<Object>) new DefaultSerializerFactory().getSerializer(serDef);
-        Store<Object, Object> store = SerializingStore.wrap(new ReadOnlyStorageEngine(storeName,
-                                                                                      new BinarySearchStrategy(),
-                                                                                      storeDir,
-                                                                                      1),
-                                                            serializer,
-                                                            serializer);
+        Store<Object, Object, Object> store = SerializingStore.wrap(new ReadOnlyStorageEngine(storeName,
+                                                                                              new BinarySearchStrategy(),
+                                                                                              new RoutingStrategyFactory().updateRoutingStrategy(def,
+                                                                                                                                                 cluster),
+                                                                                              0,
+                                                                                              storeDir,
+                                                                                              1),
+                                                                    serializer,
+                                                                    serializer,
+                                                                    serializer);
 
         // check values
         for(Map.Entry<String, String> entry: values.entrySet()) {
-            List<Versioned<Object>> found = store.get(entry.getKey());
+            List<Versioned<Object>> found = store.get(entry.getKey(), null);
             assertEquals("Incorrect number of results", 1, found.size());
             assertEquals(entry.getValue(), found.get(0).getValue());
         }

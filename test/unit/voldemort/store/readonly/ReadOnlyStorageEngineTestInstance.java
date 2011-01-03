@@ -21,6 +21,7 @@ import voldemort.routing.RoutingStrategyType;
 import voldemort.serialization.DefaultSerializerFactory;
 import voldemort.serialization.Serializer;
 import voldemort.serialization.SerializerDefinition;
+import voldemort.serialization.StringSerializer;
 import voldemort.serialization.json.JsonReader;
 import voldemort.store.Store;
 import voldemort.store.StoreDefinition;
@@ -38,13 +39,13 @@ public class ReadOnlyStorageEngineTestInstance {
 
     private final Map<String, String> data;
     private final File baseDir;
-    private final Map<Integer, Store<String, String>> nodeStores;
+    private final Map<Integer, Store<String, String, String>> nodeStores;
     private final RoutingStrategy routingStrategy;
     private final Serializer<String> keySerializer;
 
     private ReadOnlyStorageEngineTestInstance(Map<String, String> data,
                                               File baseDir,
-                                              Map<Integer, Store<String, String>> nodeStores,
+                                              Map<Integer, Store<String, String, String>> nodeStores,
                                               RoutingStrategy routingStrategy,
                                               Serializer<String> keySerializer) {
         this.data = data;
@@ -67,7 +68,7 @@ public class ReadOnlyStorageEngineTestInstance {
         return data;
     }
 
-    private static JsonReader makeTestDataReader(Map<String, String> data, File dir)
+    public static JsonReader makeTestDataReader(Map<String, String> data, File dir)
             throws Exception {
         File dataFile = File.createTempFile("test-data", ".txt", dir);
         dataFile.deleteOnExit();
@@ -85,7 +86,8 @@ public class ReadOnlyStorageEngineTestInstance {
                                                            int numNodes,
                                                            int repFactor,
                                                            SerializerDefinition keySerDef,
-                                                           SerializerDefinition valueSerDef)
+                                                           SerializerDefinition valueSerDef,
+                                                           ReadOnlyStorageFormat type)
             throws Exception {
         // create some test data
         Map<String, String> data = createTestData(testSize);
@@ -130,14 +132,15 @@ public class ReadOnlyStorageEngineTestInstance {
                                                              2,
                                                              10000,
                                                              false);
-        storeBuilder.build();
+        storeBuilder.build(type);
 
         File nodeDir = TestUtils.createTempDir(baseDir);
         @SuppressWarnings("unchecked")
         Serializer<String> keySerializer = (Serializer<String>) new DefaultSerializerFactory().getSerializer(keySerDef);
         @SuppressWarnings("unchecked")
         Serializer<String> valueSerializer = (Serializer<String>) new DefaultSerializerFactory().getSerializer(valueSerDef);
-        Map<Integer, Store<String, String>> nodeStores = Maps.newHashMap();
+        Serializer<String> transSerializer = new StringSerializer();
+        Map<Integer, Store<String, String, String>> nodeStores = Maps.newHashMap();
         for(int i = 0; i < numNodes; i++) {
             File currNode = new File(nodeDir, Integer.toString(i));
             currNode.mkdirs();
@@ -148,14 +151,19 @@ public class ReadOnlyStorageEngineTestInstance {
             CompressionStrategyFactory comppressionStrategyFactory = new CompressionStrategyFactory();
             CompressionStrategy keyCompressionStrat = comppressionStrategyFactory.get(keySerDef.getCompression());
             CompressionStrategy valueCompressionStrat = comppressionStrategyFactory.get(valueSerDef.getCompression());
-            Store<ByteArray, byte[]> innerStore = new CompressingStore(new ReadOnlyStorageEngine("test",
-                                                                                                 strategy,
-                                                                                                 currNode,
-                                                                                                 1),
-                                                                       keyCompressionStrat,
-                                                                       valueCompressionStrat);
+            Store<ByteArray, byte[], byte[]> innerStore = new CompressingStore(new ReadOnlyStorageEngine("test",
+                                                                                                         strategy,
+                                                                                                         router,
+                                                                                                         i,
+                                                                                                         currNode,
+                                                                                                         1),
+                                                                               keyCompressionStrat,
+                                                                               valueCompressionStrat);
 
-            nodeStores.put(i, SerializingStore.wrap(innerStore, keySerializer, valueSerializer));
+            nodeStores.put(i, SerializingStore.wrap(innerStore,
+                                                    keySerializer,
+                                                    valueSerializer,
+                                                    transSerializer));
         }
 
         return new ReadOnlyStorageEngineTestInstance(data,
@@ -177,7 +185,7 @@ public class ReadOnlyStorageEngineTestInstance {
         return baseDir;
     }
 
-    public Map<Integer, Store<String, String>> getNodeStores() {
+    public Map<Integer, Store<String, String, String>> getNodeStores() {
         return nodeStores;
     }
 

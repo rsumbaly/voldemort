@@ -39,7 +39,7 @@ public class PerformSerialPutRequests extends
 
     private final int required;
 
-    private final Map<Integer, Store<ByteArray, byte[]>> stores;
+    private final Map<Integer, Store<ByteArray, byte[], byte[]>> stores;
 
     private final Versioned<byte[]> versioned;
 
@@ -47,11 +47,14 @@ public class PerformSerialPutRequests extends
 
     private final Event masterDeterminedEvent;
 
+    private byte[] transforms;
+
     public PerformSerialPutRequests(PutPipelineData pipelineData,
                                     Event completeEvent,
                                     ByteArray key,
+                                    byte[] transforms,
                                     FailureDetector failureDetector,
-                                    Map<Integer, Store<ByteArray, byte[]>> stores,
+                                    Map<Integer, Store<ByteArray, byte[], byte[]>> stores,
                                     int required,
                                     Versioned<byte[]> versioned,
                                     Time time,
@@ -62,6 +65,7 @@ public class PerformSerialPutRequests extends
         this.required = required;
         this.versioned = versioned;
         this.time = time;
+        this.transforms = transforms;
         this.masterDeterminedEvent = masterDeterminedEvent;
     }
 
@@ -88,7 +92,7 @@ public class PerformSerialPutRequests extends
             long start = System.nanoTime();
 
             try {
-                stores.get(node.getId()).put(key, versionedCopy);
+                stores.get(node.getId()).put(key, versionedCopy, transforms);
                 long requestTime = (System.nanoTime() - start) / Time.NS_PER_MS;
                 pipelineData.incrementSuccesses();
                 failureDetector.recordSuccess(node, requestTime);
@@ -113,7 +117,7 @@ public class PerformSerialPutRequests extends
             pipelineData.setFatalError(new InsufficientOperationalNodesException("No master node succeeded!",
                                                                                  failures.size() > 0 ? failures.get(0)
                                                                                                     : null));
-            pipeline.addEvent(Event.ERROR);
+            pipeline.abort();
             return;
         }
 
@@ -130,7 +134,7 @@ public class PerformSerialPutRequests extends
                                                                                              + pipelineData.getSuccesses()
                                                                                              + " succeeded",
                                                                                      pipelineData.getFailures()));
-                pipeline.addEvent(Event.ERROR);
+                pipeline.abort();
             } else {
                 if(pipelineData.getZonesRequired() != null) {
 
@@ -145,8 +149,7 @@ public class PerformSerialPutRequests extends
                                                                                           + "s required zone, but only "
                                                                                           + zonesSatisfied
                                                                                           + " succeeded"));
-
-                        pipeline.addEvent(Event.ERROR);
+                        pipeline.abort();
                     }
 
                 } else {

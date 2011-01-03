@@ -16,13 +16,17 @@
 
 package voldemort.client;
 
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileWriter;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +45,7 @@ import voldemort.TestUtils;
 import voldemort.client.protocol.admin.AdminClient;
 import voldemort.client.rebalance.RebalancePartitionsInfo;
 import voldemort.cluster.Cluster;
+import voldemort.cluster.Node;
 import voldemort.routing.RoutingStrategy;
 import voldemort.routing.RoutingStrategyType;
 import voldemort.serialization.SerializerDefinition;
@@ -50,14 +55,20 @@ import voldemort.store.StoreDefinition;
 import voldemort.store.StoreDefinitionBuilder;
 import voldemort.store.memory.InMemoryStorageConfiguration;
 import voldemort.store.metadata.MetadataStore;
+import voldemort.store.readonly.ReadOnlyStorageEngine;
+import voldemort.store.readonly.ReadOnlyStorageFormat;
+import voldemort.store.readonly.ReadOnlyStorageMetadata;
+import voldemort.store.slop.Slop;
 import voldemort.store.socket.SocketStoreFactory;
 import voldemort.store.socket.clientrequest.ClientRequestExecutorPool;
 import voldemort.utils.ByteArray;
 import voldemort.utils.Pair;
+import voldemort.utils.Utils;
 import voldemort.versioning.VectorClock;
 import voldemort.versioning.Versioned;
 
 import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.Lists;
 
 /**
  */
@@ -133,9 +144,9 @@ public class AdminServiceBasicTest extends TestCase {
         return adminClient;
     }
 
-    private Store<ByteArray, byte[]> getStore(int nodeID, String storeName) {
-        Store<ByteArray, byte[]> store = getVoldemortServer(nodeID).getStoreRepository()
-                                                                   .getStorageEngine(storeName);
+    private Store<ByteArray, byte[], byte[]> getStore(int nodeID, String storeName) {
+        Store<ByteArray, byte[], byte[]> store = getVoldemortServer(nodeID).getStoreRepository()
+                                                                           .getStorageEngine(storeName);
         assertNotSame("Store '" + storeName + "' should not be null", null, store);
         return store;
     }
@@ -328,9 +339,9 @@ public class AdminServiceBasicTest extends TestCase {
         HashMap<ByteArray, byte[]> entrySet = ServerTestUtils.createRandomKeyValuePairs(TEST_STREAM_KEYS_SIZE);
 
         // insert it into server-0 store
-        Store<ByteArray, byte[]> store = getStore(0, testStoreName);
+        Store<ByteArray, byte[], byte[]> store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()));
+            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()), null);
         }
 
         List<Integer> deletePartitionsList = Arrays.asList(0, 2);
@@ -341,8 +352,8 @@ public class AdminServiceBasicTest extends TestCase {
         store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
             if(isKeyPartition(entry.getKey(), 0, testStoreName, deletePartitionsList)) {
-                assertEquals("deleted partitions should be missing.", 0, store.get(entry.getKey())
-                                                                              .size());
+                assertEquals("deleted partitions should be missing.", 0, store.get(entry.getKey(),
+                                                                                   null).size());
             }
         }
     }
@@ -355,9 +366,9 @@ public class AdminServiceBasicTest extends TestCase {
 
         // insert it into server-0 store
         int fetchPartitionKeyCount = 0;
-        Store<ByteArray, byte[]> store = getStore(0, testStoreName);
+        Store<ByteArray, byte[], byte[]> store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()));
+            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()), null);
             if(isKeyPartition(entry.getKey(), 0, testStoreName, fetchPartitionsList)) {
                 fetchPartitionKeyCount++;
             }
@@ -384,13 +395,161 @@ public class AdminServiceBasicTest extends TestCase {
     }
 
     @Test
+    public void testFetchPartitionFiles() throws IOException {
+        generateAndFetchFiles(10, 1, 1000, 1000);
+    }
+
+    private void generateFiles(int numChunks,
+                               long indexSize,
+                               long dataSize,
+                               List<Integer> partitions,
+                               File versionDir) throws IOException {
+
+        ReadOnlyStorageMetadata metadata = new ReadOnlyStorageMetadata();
+        metadata.add(ReadOnlyStorageMetadata.FORMAT, ReadOnlyStorageFormat.READONLY_V1.getCode());
+
+        File metadataFile = new File(versionDir, ".metadata");
+        BufferedWriter writer = new BufferedWriter(new FileWriter(metadataFile));
+        writer.write(metadata.toJsonString());
+        writer.close();
+
+        for(Integer partitionId: partitions) {
+            for(int chunkId = 0; chunkId < numChunks; chunkId++) {
+                File index = new File(versionDir, Integer.toString(partitionId) + "_"
+                                                  + Integer.toString(chunkId) + ".index");
+                File data = new File(versionDir, Integer.toString(partitionId) + "_"
+                                                 + Integer.toString(chunkId) + ".data");
+                // write some random crap for index and data
+                FileOutputStream dataOs = new FileOutputStream(data);
+                for(int i = 0; i < dataSize; i++)
+                    dataOs.write(i);
+                dataOs.close();
+                FileOutputStream indexOs = new FileOutputStream(index);
+                for(int i = 0; i < indexSize; i++)
+                    indexOs.write(i);
+                indexOs.close();
+            }
+        }
+    }
+
+    private void generateAndFetchFiles(int numChunks, long versionId, long indexSize, long dataSize)
+            throws IOException {
+        for(Node node: cluster.getNodes()) {
+            ReadOnlyStorageEngine store = (ReadOnlyStorageEngine) getStore(node.getId(),
+                                                                           "test-readonly-fetchfiles");
+
+            // Generate data
+            File newVersionDir = new File(store.getStoreDirPath(), "version-"
+                                                                   + Long.toString(versionId));
+            Utils.mkdirs(newVersionDir);
+            generateFiles(numChunks, indexSize, dataSize, node.getPartitionIds(), newVersionDir);
+
+            // Swap it...
+            store.swapFiles(newVersionDir.getAbsolutePath());
+
+            // Fetch it...
+            File tempDir = TestUtils.createTempDir();
+
+            getAdminClient().fetchPartitionFiles(node.getId(),
+                                                 "test-readonly-fetchfiles",
+                                                 node.getPartitionIds(),
+                                                 tempDir.getAbsolutePath());
+
+            // Check it...
+            assertEquals(tempDir.list().length, 2 * node.getPartitionIds().size() * numChunks);
+
+            for(Integer partitionId: node.getPartitionIds()) {
+                for(int chunkId = 0; chunkId < numChunks; chunkId++) {
+                    File indexFile = new File(tempDir, Integer.toString(partitionId) + "_"
+                                                       + Integer.toString(chunkId) + ".index");
+                    File dataFile = new File(tempDir, Integer.toString(partitionId) + "_"
+                                                      + Integer.toString(chunkId) + ".data");
+
+                    assertTrue(indexFile.exists());
+                    assertTrue(dataFile.exists());
+                    assertEquals(indexFile.length(), indexSize);
+                    assertEquals(dataFile.length(), dataSize);
+                }
+
+            }
+        }
+    }
+
+    @Test
+    public void testGetROVersions() throws IOException {
+
+        // Tests get current version
+        Map<String, Long> storesToVersions = getAdminClient().getROCurrentVersion(0,
+                                                                                  Lists.newArrayList("test-readonly-fetchfiles",
+                                                                                                     "test-readonly-versions"));
+        assertEquals(storesToVersions.size(), 2);
+        assertEquals(storesToVersions.get("test-readonly-fetchfiles").longValue(), 0);
+        assertEquals(storesToVersions.get("test-readonly-versions").longValue(), 0);
+
+        // Tests get maximum version
+        storesToVersions = getAdminClient().getROMaxVersion(0,
+                                                            Lists.newArrayList("test-readonly-fetchfiles",
+                                                                               "test-readonly-versions"));
+        assertEquals(storesToVersions.size(), 2);
+        assertEquals(storesToVersions.get("test-readonly-fetchfiles").longValue(), 0);
+        assertEquals(storesToVersions.get("test-readonly-versions").longValue(), 0);
+
+        // Tests global get maximum versions
+        storesToVersions = getAdminClient().getROMaxVersion(Lists.newArrayList("test-readonly-fetchfiles",
+                                                                               "test-readonly-versions"));
+        assertEquals(storesToVersions.size(), 2);
+        assertEquals(storesToVersions.get("test-readonly-fetchfiles").longValue(), 0);
+        assertEquals(storesToVersions.get("test-readonly-versions").longValue(), 0);
+
+        ReadOnlyStorageEngine storeNode0 = (ReadOnlyStorageEngine) getStore(0,
+                                                                            "test-readonly-fetchfiles");
+        ReadOnlyStorageEngine storeNode1 = (ReadOnlyStorageEngine) getStore(1,
+                                                                            "test-readonly-fetchfiles");
+
+        Utils.mkdirs(new File(storeNode0.getStoreDirPath(), "version-10"));
+        File newVersionNode1 = new File(storeNode1.getStoreDirPath(), "version-11");
+        Utils.mkdirs(newVersionNode1);
+        generateFiles(10, 20, 20, cluster.getNodeById(1).getPartitionIds(), newVersionNode1);
+        storeNode1.swapFiles(newVersionNode1.getAbsolutePath());
+
+        // Node 0
+        // Test current version
+        storesToVersions = getAdminClient().getROCurrentVersion(0,
+                                                                Lists.newArrayList("test-readonly-fetchfiles"));
+        assertEquals(storesToVersions.get("test-readonly-fetchfiles").longValue(), 0);
+
+        // Test max version
+        storesToVersions = getAdminClient().getROMaxVersion(0,
+                                                            Lists.newArrayList("test-readonly-fetchfiles"));
+        assertEquals(storesToVersions.get("test-readonly-fetchfiles").longValue(), 10);
+
+        // Node 1
+        // Test current version
+        storesToVersions = getAdminClient().getROCurrentVersion(1,
+                                                                Lists.newArrayList("test-readonly-fetchfiles"));
+        assertEquals(storesToVersions.get("test-readonly-fetchfiles").longValue(), 11);
+
+        // Test max version
+        storesToVersions = getAdminClient().getROMaxVersion(1,
+                                                            Lists.newArrayList("test-readonly-fetchfiles"));
+        assertEquals(storesToVersions.get("test-readonly-fetchfiles").longValue(), 11);
+
+        // Test global max
+        storesToVersions = getAdminClient().getROMaxVersion(Lists.newArrayList("test-readonly-fetchfiles",
+                                                                               "test-readonly-versions"));
+        assertEquals(storesToVersions.get("test-readonly-fetchfiles").longValue(), 11);
+        assertEquals(storesToVersions.get("test-readonly-versions").longValue(), 0);
+
+    }
+
+    @Test
     public void testTruncate() throws Exception {
         HashMap<ByteArray, byte[]> entrySet = ServerTestUtils.createRandomKeyValuePairs(TEST_STREAM_KEYS_SIZE);
 
         // insert it into server-0 store
-        Store<ByteArray, byte[]> store = getStore(0, testStoreName);
+        Store<ByteArray, byte[], byte[]> store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()));
+            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()), null);
         }
 
         // do truncate request
@@ -399,7 +558,8 @@ public class AdminServiceBasicTest extends TestCase {
         store = getStore(0, testStoreName);
 
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            assertEquals("Deleted key should be missing.", 0, store.get(entry.getKey()).size());
+            assertEquals("Deleted key should be missing.", 0, store.get(entry.getKey(), null)
+                                                                   .size());
         }
     }
 
@@ -410,9 +570,9 @@ public class AdminServiceBasicTest extends TestCase {
 
         // insert it into server-0 store
         int fetchPartitionKeyCount = 0;
-        Store<ByteArray, byte[]> store = getStore(0, testStoreName);
+        Store<ByteArray, byte[], byte[]> store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()));
+            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()), null);
             if(isKeyPartition(entry.getKey(), 0, testStoreName, fetchPartitionsList)) {
                 fetchPartitionKeyCount++;
             }
@@ -465,12 +625,48 @@ public class AdminServiceBasicTest extends TestCase {
         getAdminClient().updateEntries(0, testStoreName, iterator, null);
 
         // check updated values
-        Store<ByteArray, byte[]> store = getStore(0, testStoreName);
+        Store<ByteArray, byte[], byte[]> store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            assertNotSame("entry should be present at store", 0, store.get(entry.getKey()).size());
+            assertNotSame("entry should be present at store", 0, store.get(entry.getKey(), null)
+                                                                      .size());
             assertEquals("entry value should match",
                          new String(entry.getValue()),
-                         new String(store.get(entry.getKey()).get(0).getValue()));
+                         new String(store.get(entry.getKey(), null).get(0).getValue()));
+        }
+    }
+
+    @Test
+    public void testUpdateSlops() {
+        final List<Versioned<Slop>> entrySet = ServerTestUtils.createRandomSlops(0,
+                                                                                 10000,
+                                                                                 testStoreName,
+                                                                                 "users",
+                                                                                 "test-replication-persistent",
+                                                                                 "test-readrepair-memory",
+                                                                                 "test-consistent",
+                                                                                 "test-consistent-with-pref-list");
+
+        Iterator<Versioned<Slop>> slopIterator = entrySet.iterator();
+        getAdminClient().updateSlopEntries(0, slopIterator);
+
+        // check updated values
+        Iterator<Versioned<Slop>> entrysetItr = entrySet.iterator();
+
+        while(entrysetItr.hasNext()) {
+            Versioned<Slop> versioned = entrysetItr.next();
+            Slop nextSlop = versioned.getValue();
+            Store<ByteArray, byte[], byte[]> store = getStore(0, nextSlop.getStoreName());
+
+            if(nextSlop.getOperation().equals(Slop.Operation.PUT)) {
+                assertNotSame("entry should be present at store", 0, store.get(nextSlop.getKey(),
+                                                                               null).size());
+                assertEquals("entry value should match",
+                             new String(nextSlop.getValue()),
+                             new String(store.get(nextSlop.getKey(), null).get(0).getValue()));
+            } else if(nextSlop.getOperation().equals(Slop.Operation.DELETE)) {
+                assertEquals("entry value should match", 0, store.get(nextSlop.getKey(), null)
+                                                                 .size());
+            }
         }
     }
 
@@ -482,9 +678,9 @@ public class AdminServiceBasicTest extends TestCase {
 
         // insert it into server-0 store
         int fetchPartitionKeyCount = 0;
-        Store<ByteArray, byte[]> store = getStore(0, testStoreName);
+        Store<ByteArray, byte[], byte[]> store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()));
+            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()), null);
             if(isKeyPartition(entry.getKey(), 0, testStoreName, fetchAndUpdatePartitionsList)) {
                 fetchPartitionKeyCount++;
             }
@@ -494,8 +690,11 @@ public class AdminServiceBasicTest extends TestCase {
         RebalancePartitionsInfo stealInfo = new RebalancePartitionsInfo(1,
                                                                         0,
                                                                         rebalancePartitionList,
-                                                                        new ArrayList<Integer>(0),
+                                                                        rebalancePartitionList,
+                                                                        rebalancePartitionList,
                                                                         Arrays.asList(testStoreName),
+                                                                        new HashMap<String, String>(),
+                                                                        new HashMap<String, String>(),
                                                                         0);
         int asyncId = adminClient.rebalanceNode(stealInfo);
         assertNotSame("Got a valid rebalanceAsyncId", -1, asyncId);
@@ -506,10 +705,11 @@ public class AdminServiceBasicTest extends TestCase {
         store = getStore(1, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
             if(isKeyPartition(entry.getKey(), 1, testStoreName, rebalancePartitionList)) {
-                assertSame("entry should be present at store", 1, store.get(entry.getKey()).size());
+                assertSame("entry should be present at store", 1, store.get(entry.getKey(), null)
+                                                                       .size());
                 assertEquals("entry value should match",
                              new String(entry.getValue()),
-                             new String(store.get(entry.getKey()).get(0).getValue()));
+                             new String(store.get(entry.getKey(), null).get(0).getValue()));
             }
         }
     }
@@ -521,15 +721,16 @@ public class AdminServiceBasicTest extends TestCase {
 
         HashMap<ByteArray, byte[]> entrySet = ServerTestUtils.createRandomKeyValuePairs(TEST_STREAM_KEYS_SIZE);
         // insert it into server-0 store
-        Store<ByteArray, byte[]> store = getStore(0, testStoreName);
+        Store<ByteArray, byte[], byte[]> store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()));
+            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()), null);
         }
 
         // assert server 1 is empty
         store = getStore(1, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            assertSame("entry should NOT be present at store", 0, store.get(entry.getKey()).size());
+            assertSame("entry should NOT be present at store", 0, store.get(entry.getKey(), null)
+                                                                       .size());
         }
 
         // recover all data
@@ -539,11 +740,11 @@ public class AdminServiceBasicTest extends TestCase {
         store = getStore(1, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
             ByteArray key = entry.getKey();
-            assertSame("entry should be present for key " + key, 1, store.get(entry.getKey())
+            assertSame("entry should be present for key " + key, 1, store.get(entry.getKey(), null)
                                                                          .size());
             assertEquals("entry value should match",
                          new String(entry.getValue()),
-                         new String(store.get(entry.getKey()).get(0).getValue()));
+                         new String(store.get(entry.getKey(), null).get(0).getValue()));
         }
     }
 
@@ -557,9 +758,9 @@ public class AdminServiceBasicTest extends TestCase {
 
         // insert it into server-0 store
         int fetchPartitionKeyCount = 0;
-        Store<ByteArray, byte[]> store = getStore(0, testStoreName);
+        Store<ByteArray, byte[], byte[]> store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
-            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()));
+            store.put(entry.getKey(), new Versioned<byte[]>(entry.getValue()), null);
             if(isKeyPartition(entry.getKey(), 0, testStoreName, fetchAndUpdatePartitionsList)) {
                 fetchPartitionKeyCount++;
             }
@@ -568,7 +769,8 @@ public class AdminServiceBasicTest extends TestCase {
         // assert that server1 is empty.
         store = getStore(1, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet())
-            assertEquals("server1 should be empty at start.", 0, store.get(entry.getKey()).size());
+            assertEquals("server1 should be empty at start.", 0, store.get(entry.getKey(), null)
+                                                                      .size());
 
         // do fetch And update call server1 <-- server0
         AdminClient client = getAdminClient();
@@ -582,10 +784,10 @@ public class AdminServiceBasicTest extends TestCase {
             if(isKeyPartition(entry.getKey(), 0, testStoreName, fetchAndUpdatePartitionsList)) {
                 assertEquals("server1 store should contain fetchAndupdated partitions.",
                              1,
-                             store.get(entry.getKey()).size());
+                             store.get(entry.getKey(), null).size());
                 assertEquals("entry value should match",
                              new String(entry.getValue()),
-                             new String(store.get(entry.getKey()).get(0).getValue()));
+                             new String(store.get(entry.getKey(), null).get(0).getValue()));
                 count++;
             }
         }

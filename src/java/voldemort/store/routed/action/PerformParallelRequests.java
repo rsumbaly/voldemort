@@ -16,6 +16,7 @@
 
 package voldemort.store.routed.action;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,14 +29,19 @@ import voldemort.cluster.Node;
 import voldemort.cluster.failuredetector.FailureDetector;
 import voldemort.store.InsufficientOperationalNodesException;
 import voldemort.store.InsufficientZoneResponsesException;
+import voldemort.store.UnreachableStoreException;
 import voldemort.store.nonblockingstore.NonblockingStore;
 import voldemort.store.nonblockingstore.NonblockingStoreCallback;
-import voldemort.store.nonblockingstore.NonblockingStoreRequest;
 import voldemort.store.routed.BasicPipelineData;
 import voldemort.store.routed.Pipeline;
 import voldemort.store.routed.Response;
 import voldemort.store.routed.Pipeline.Event;
+import voldemort.store.routed.Pipeline.Operation;
+import voldemort.store.slop.HintedHandoff;
+import voldemort.store.slop.Slop;
 import voldemort.utils.ByteArray;
+import voldemort.utils.Utils;
+import voldemort.versioning.Version;
 
 public class PerformParallelRequests<V, PD extends BasicPipelineData<V>> extends
         AbstractKeyBasedAction<ByteArray, V, PD> {
@@ -50,35 +56,49 @@ public class PerformParallelRequests<V, PD extends BasicPipelineData<V>> extends
 
     private final FailureDetector failureDetector;
 
-    private final NonblockingStoreRequest storeRequest;
-
     private final Event insufficientSuccessesEvent;
 
     private final Event insufficientZonesEvent;
 
+    private final boolean enableHintedHandoff;
+
+    private final HintedHandoff hintedHandoff;
+
+    private final Version version;
+
+    private byte[] transforms;
+
     public PerformParallelRequests(PD pipelineData,
                                    Event completeEvent,
                                    ByteArray key,
+                                   byte[] transforms,
                                    FailureDetector failureDetector,
                                    int preferred,
                                    int required,
                                    long timeoutMs,
                                    Map<Integer, NonblockingStore> nonblockingStores,
-                                   NonblockingStoreRequest storeRequest,
+                                   HintedHandoff hintedHandoff,
+                                   Version version,
                                    Event insufficientSuccessesEvent,
                                    Event insufficientZonesEvent) {
         super(pipelineData, completeEvent, key);
         this.failureDetector = failureDetector;
         this.preferred = preferred;
         this.required = required;
+        this.transforms = transforms;
         this.timeoutMs = timeoutMs;
         this.nonblockingStores = nonblockingStores;
-        this.storeRequest = storeRequest;
         this.insufficientSuccessesEvent = insufficientSuccessesEvent;
         this.insufficientZonesEvent = insufficientZonesEvent;
+        this.enableHintedHandoff = hintedHandoff != null;
+        this.version = version;
+        this.hintedHandoff = hintedHandoff;
     }
 
-    @SuppressWarnings("unchecked")
+    public boolean isHintedHandoffEnabled() {
+        return enableHintedHandoff;
+    }
+
     public void execute(final Pipeline pipeline) {
         List<Node> nodes = pipelineData.getNodes();
         int attempts = Math.min(preferred, nodes.size());
@@ -101,11 +121,31 @@ public class PerformParallelRequests<V, PD extends BasicPipelineData<V>> extends
                                      + " response received (" + requestTime + " ms.) from node "
                                      + node.getId());
 
-                    responses.put(node.getId(), new Response<ByteArray, Object>(node,
-                                                                                key,
-                                                                                result,
-                                                                                requestTime));
+                    Response<ByteArray, Object> response = new Response<ByteArray, Object>(node,
+                                                                                           key,
+                                                                                           result,
+                                                                                           requestTime);
+                    responses.put(node.getId(), response);
+                    if(Pipeline.Operation.DELETE == pipeline.getOperation() && pipeline.isFinished()) {
+                        if(isHintedHandoffEnabled() && response.getValue() instanceof UnreachableStoreException) {
+                            Slop slop = new Slop(pipelineData.getStoreName(),
+                                                 Slop.Operation.DELETE,
+                                                 key,
+                                                 null,
+                                                 null,
+                                                 node.getId(),
+                                                 new Date());
+                            pipelineData.addFailedNode(node);
+                            hintedHandoff.sendHintSerial(node, version, slop);
+                        }
+                    }
                     latch.countDown();
+
+                    // Note errors that come in after the pipeline has finished.
+                    // These will *not* get a chance to be called in the loop of
+                    // responses below.
+                    if(pipeline.isFinished() && response.getValue() instanceof Exception)
+                        handleResponseError(response, pipeline, failureDetector);
                 }
 
             };
@@ -115,7 +155,17 @@ public class PerformParallelRequests<V, PD extends BasicPipelineData<V>> extends
                              + " request on node " + node.getId());
 
             NonblockingStore store = nonblockingStores.get(node.getId());
-            storeRequest.submit(node, store, callback);
+
+            if(pipeline.getOperation() == Operation.DELETE)
+                store.submitDeleteRequest(key, version, callback, timeoutMs);
+            else if(pipeline.getOperation() == Operation.GET)
+                store.submitGetRequest(key, transforms, callback, timeoutMs);
+            else if(pipeline.getOperation() == Operation.GET_VERSIONS)
+                store.submitGetVersionsRequest(key, callback, timeoutMs);
+            else
+                throw new IllegalStateException(getClass().getName()
+                                                + " does not support pipeline operation "
+                                                + pipeline.getOperation());
         }
 
         try {
@@ -125,13 +175,15 @@ public class PerformParallelRequests<V, PD extends BasicPipelineData<V>> extends
                 logger.warn(e, e);
         }
 
+
         for(Response<ByteArray, Object> response: responses.values()) {
             if(response.getValue() instanceof Exception) {
                 if(handleResponseError(response, pipeline, failureDetector))
                     return;
             } else {
                 pipelineData.incrementSuccesses();
-                pipelineData.getResponses().add((Response<ByteArray, V>) response);
+                Response<ByteArray,  V> rCast = Utils.uncheckedCast(response);
+                pipelineData.getResponses().add(rCast);
                 failureDetector.recordSuccess(response.getNode(), response.getRequestTime());
                 pipelineData.getZoneResponses().add(response.getNode().getZoneId());
             }
@@ -150,7 +202,7 @@ public class PerformParallelRequests<V, PD extends BasicPipelineData<V>> extends
                                                                                              + " succeeded",
                                                                                      pipelineData.getFailures()));
 
-                pipeline.addEvent(Event.ERROR);
+                pipeline.abort();
             }
 
         } else {

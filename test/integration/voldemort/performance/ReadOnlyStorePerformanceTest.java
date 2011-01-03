@@ -47,6 +47,8 @@ import voldemort.TestUtils;
 import voldemort.client.RoutingTier;
 import voldemort.cluster.Cluster;
 import voldemort.routing.ConsistentRoutingStrategy;
+import voldemort.routing.RoutingStrategyFactory;
+import voldemort.routing.RoutingStrategyType;
 import voldemort.serialization.Serializer;
 import voldemort.serialization.SerializerDefinition;
 import voldemort.serialization.json.JsonReader;
@@ -58,6 +60,7 @@ import voldemort.store.StoreDefinitionBuilder;
 import voldemort.store.readonly.BinarySearchStrategy;
 import voldemort.store.readonly.JsonStoreBuilder;
 import voldemort.store.readonly.ReadOnlyStorageEngine;
+import voldemort.store.readonly.ReadOnlyStorageFormat;
 import voldemort.store.readonly.SearchStrategy;
 import voldemort.utils.ByteArray;
 import voldemort.utils.CmdUtils;
@@ -65,6 +68,7 @@ import voldemort.utils.ReflectUtils;
 import voldemort.utils.Utils;
 import voldemort.versioning.ObsoleteVersionException;
 import voldemort.versioning.Versioned;
+import voldemort.xml.ClusterMapper;
 
 public class ReadOnlyStorePerformanceTest {
 
@@ -78,6 +82,11 @@ public class ReadOnlyStorePerformanceTest {
         parser.accepts("store-dir", "[REQUIRED] store directory")
               .withRequiredArg()
               .describedAs("directory");
+        parser.accepts("cluster-xml", "Path to cluster.xml").withRequiredArg().describedAs("path");
+        parser.accepts("node-id", "Id of node")
+              .withRequiredArg()
+              .ofType(Integer.class)
+              .describedAs("node-id");
         parser.accepts("search-strategy", "class of the search strategy to use")
               .withRequiredArg()
               .describedAs("class_name");
@@ -86,7 +95,7 @@ public class ReadOnlyStorePerformanceTest {
               .withRequiredArg()
               .describedAs("count")
               .ofType(Integer.class);
-        parser.accepts("num-chunks", "The number of chunks in the store")
+        parser.accepts("num-chunks", "The number of chunks per partition")
               .withRequiredArg()
               .describedAs("chunks")
               .ofType(Integer.class);
@@ -127,6 +136,21 @@ public class ReadOnlyStorePerformanceTest {
                                                           System.getProperty("java.io.tmpdir")));
         String storeDir = (String) options.valueOf("store-dir");
 
+        Cluster cluster = null;
+        int nodeId = 0;
+
+        SerializerDefinition sdef = new SerializerDefinition("json", "'string'");
+        StoreDefinition storeDef = new StoreDefinitionBuilder().setName("test")
+                                                               .setKeySerializer(sdef)
+                                                               .setValueSerializer(sdef)
+                                                               .setRequiredReads(1)
+                                                               .setReplicationFactor(1)
+                                                               .setRequiredWrites(1)
+                                                               .setType("read-only")
+                                                               .setRoutingStrategyType(RoutingStrategyType.CONSISTENT_STRATEGY)
+                                                               .setRoutingPolicy(RoutingTier.CLIENT)
+                                                               .build();
+
         if(options.has("build")) {
             CmdUtils.croakIfMissing(parser, options, "num-values", "value-size");
             numValues = (Integer) options.valueOf("num-values");
@@ -159,17 +183,10 @@ public class ReadOnlyStorePerformanceTest {
             Reader r = new BufferedReader(new InputStreamReader(inputStream), 1 * 1024 * 1024);
             File output = TestUtils.createTempDir(workingDir);
             File tempDir = TestUtils.createTempDir(workingDir);
-            SerializerDefinition sdef = new SerializerDefinition("json", "'string'");
-            Cluster cluster = ServerTestUtils.getLocalCluster(1);
-            StoreDefinition storeDef = new StoreDefinitionBuilder().setName("test")
-                                                                   .setKeySerializer(sdef)
-                                                                   .setValueSerializer(sdef)
-                                                                   .setRequiredReads(1)
-                                                                   .setReplicationFactor(1)
-                                                                   .setRequiredWrites(1)
-                                                                   .setType("read-only")
-                                                                   .setRoutingPolicy(RoutingTier.CLIENT)
-                                                                   .build();
+
+            cluster = ServerTestUtils.getLocalCluster(1);
+            nodeId = 0;
+
             JsonStoreBuilder builder = new JsonStoreBuilder(new JsonReader(r),
                                                             cluster,
                                                             storeDef,
@@ -182,7 +199,7 @@ public class ReadOnlyStorePerformanceTest {
                                                             numChunks,
                                                             64 * 1024,
                                                             gzipIntermediate);
-            builder.build();
+            builder.build(ReadOnlyStorageFormat.READONLY_V1);
 
             // copy to store dir
             File dir = new File(storeDir);
@@ -192,12 +209,27 @@ public class ReadOnlyStorePerformanceTest {
             boolean copyWorked = new File(output, "node-0").renameTo(new File(dir, "version-0"));
             if(!copyWorked)
                 Utils.croak("Copy of data from " + output + " to " + dir + " failed.");
+        } else {
+            CmdUtils.croakIfMissing(parser, options, "cluster-xml", "node-id");
+
+            String clusterXmlPath = (String) options.valueOf("cluster-xml");
+            nodeId = (Integer) options.valueOf("node-id");
+
+            File clusterXml = new File(clusterXmlPath);
+            if(!clusterXml.exists()) {
+                Utils.croak("Cluster.xml does not exist");
+            }
+            cluster = new ClusterMapper().readCluster(clusterXml);
+
         }
 
-        final Store<ByteArray, byte[]> store = new ReadOnlyStorageEngine("test",
-                                                                         searcher,
-                                                                         new File(storeDir),
-                                                                         0);
+        final Store<ByteArray, byte[], byte[]> store = new ReadOnlyStorageEngine("test",
+                                                                                 searcher,
+                                                                                 new RoutingStrategyFactory().updateRoutingStrategy(storeDef,
+                                                                                                                                    cluster),
+                                                                                 nodeId,
+                                                                                 new File(storeDir),
+                                                                                 0);
 
         final AtomicInteger obsoletes = new AtomicInteger(0);
         final AtomicInteger nullResults = new AtomicInteger(0);
@@ -257,7 +289,8 @@ public class ReadOnlyStorePerformanceTest {
                 try {
                     totalResults.incrementAndGet();
                     int curr = current.getAndIncrement();
-                    List<Versioned<byte[]>> results = store.get(new ByteArray(keySerializer.toBytes(requestIds.take())));
+                    List<Versioned<byte[]>> results = store.get(new ByteArray(keySerializer.toBytes(requestIds.take())),
+                                                                null);
                     if(curr % progressIncrement == 0)
                         System.out.println(curr);
 

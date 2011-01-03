@@ -59,9 +59,9 @@ public class VoldemortWrapper {
         this.ignoreNulls = ignoreNulls;
     }
 
-    public void read(Object key, Object expectedValue) {
+    public void read(Object key, Object expectedValue, Object transforms) {
         long startNs = System.nanoTime();
-        Versioned<Object> returnedValue = voldemortStore.get(key);
+        Versioned<Object> returnedValue = voldemortStore.get(key, transforms);
         long endNs = System.nanoTime();
         measurement.recordLatency(Operations.Read.getOpString(),
                                   (int) ((endNs - startNs) / Time.NS_PER_MS));
@@ -78,22 +78,21 @@ public class VoldemortWrapper {
         measurement.recordReturnCode(Operations.Read.getOpString(), res.ordinal());
     }
 
-    public void mixed(final Object key, final Object newValue) {
+    public void mixed(final Object key, final Object newValue, final Object transforms) {
 
         boolean updated = voldemortStore.applyUpdate(new UpdateAction<Object, Object>() {
 
             @Override
             public void update(StoreClient<Object, Object> storeClient) {
                 long startNs = System.nanoTime();
-                Versioned<Object> v = storeClient.get(key);
-                if(v != null) {
-                    voldemortStore.put(key, newValue);
-                }
+                Versioned<Object> vs = storeClient.get(key);
+                if(vs != null)
+                    storeClient.put(key, newValue, transforms);
                 long endNs = System.nanoTime();
                 measurement.recordLatency(Operations.Mixed.getOpString(),
                                           (int) ((endNs - startNs) / Time.NS_PER_MS));
             }
-        }, 3);
+        });
 
         ReturnCode res = ReturnCode.Error;
         if(updated) {
@@ -103,19 +102,19 @@ public class VoldemortWrapper {
         measurement.recordReturnCode(Operations.Mixed.getOpString(), res.ordinal());
     }
 
-    public void write(final Object key, final Object value) {
+    public void write(final Object key, final Object value, final Object transforms) {
 
         boolean written = voldemortStore.applyUpdate(new UpdateAction<Object, Object>() {
 
             @Override
             public void update(StoreClient<Object, Object> storeClient) {
                 long startNs = System.nanoTime();
-                storeClient.put(key, value);
+                storeClient.put(key, value, transforms);
                 long endNs = System.nanoTime();
                 measurement.recordLatency(Operations.Write.getOpString(),
                                           (int) ((endNs - startNs) / Time.NS_PER_MS));
             }
-        }, 3);
+        });
 
         ReturnCode res = ReturnCode.Error;
         if(written) {

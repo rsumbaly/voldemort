@@ -15,6 +15,7 @@ import voldemort.store.Store;
 import voldemort.store.StoreDefinition;
 import voldemort.store.nonblockingstore.NonblockingStore;
 import voldemort.store.nonblockingstore.ThreadPoolBasedNonblockingStoreImpl;
+import voldemort.store.slop.Slop;
 import voldemort.utils.ByteArray;
 import voldemort.utils.SystemTime;
 
@@ -38,7 +39,7 @@ public class RoutedStoreFactory {
         this.routingTimeoutMs = routingTimeoutMs;
     }
 
-    public NonblockingStore toNonblockingStore(Store<ByteArray, byte[]> store) {
+    public NonblockingStore toNonblockingStore(Store<ByteArray, byte[], byte[]> store) {
         if(store instanceof NonblockingStore)
             return (NonblockingStore) store;
 
@@ -50,8 +51,10 @@ public class RoutedStoreFactory {
 
     public RoutedStore create(Cluster cluster,
                               StoreDefinition storeDefinition,
-                              Map<Integer, Store<ByteArray, byte[]>> nodeStores,
+                              Map<Integer, Store<ByteArray, byte[], byte[]>> nodeStores,
                               Map<Integer, NonblockingStore> nonblockingStores,
+                              Map<Integer, Store<ByteArray, Slop, byte[]>> slopStores,
+                              Map<Integer, NonblockingStore> nonblockingSlopStores,
                               boolean repairReads,
                               int clientZoneId,
                               FailureDetector failureDetector) {
@@ -59,6 +62,8 @@ public class RoutedStoreFactory {
             return new PipelineRoutedStore(storeDefinition.getName(),
                                            nodeStores,
                                            nonblockingStores,
+                                           slopStores,
+                                           nonblockingSlopStores,
                                            cluster,
                                            storeDefinition,
                                            repairReads,
@@ -71,6 +76,11 @@ public class RoutedStoreFactory {
                 throw new VoldemortException("Zone Routing for store '" + storeDefinition.getName()
                                              + "' not supported using thread pool routed store.");
             }
+
+            if(slopStores != null)
+                throw new VoldemortException("Hinted Handoff for store '"
+                                             + storeDefinition.getName()
+                                             + "' not supported using thread pool routed store.");
 
             return new ThreadPoolRoutedStore(storeDefinition.getName(),
                                              nodeStores,
@@ -86,18 +96,21 @@ public class RoutedStoreFactory {
 
     public RoutedStore create(Cluster cluster,
                               StoreDefinition storeDefinition,
-                              Map<Integer, Store<ByteArray, byte[]>> nodeStores,
+                              Map<Integer, Store<ByteArray, byte[], byte[]>> nodeStores,
                               boolean repairReads,
                               FailureDetector failureDetector) {
         Map<Integer, NonblockingStore> nonblockingStores = Maps.newHashMap();
 
-        for(Map.Entry<Integer, Store<ByteArray, byte[]>> entry: nodeStores.entrySet())
+        for(Map.Entry<Integer, Store<ByteArray, byte[], byte[]>> entry: nodeStores.entrySet())
             nonblockingStores.put(entry.getKey(), toNonblockingStore(entry.getValue()));
+
 
         return create(cluster,
                       storeDefinition,
                       nodeStores,
                       nonblockingStores,
+                      null,
+                      null,
                       repairReads,
                       Zone.DEFAULT_ZONE_ID,
                       failureDetector);

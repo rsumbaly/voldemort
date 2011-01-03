@@ -48,9 +48,8 @@ import voldemort.serialization.SerializerDefinition;
 import voldemort.store.StoreDefinition;
 import voldemort.store.StoreDefinitionBuilder;
 import voldemort.store.StoreUtils;
-import voldemort.store.views.View;
+import voldemort.store.slop.strategy.HintedHandoffStrategyType;
 import voldemort.store.views.ViewStorageConfiguration;
-import voldemort.utils.ReflectUtils;
 
 /**
  * Parses a stores.xml file
@@ -65,6 +64,7 @@ public class StoreDefinitionsMapper {
     public final static String STORE_PERSISTENCE_ELMT = "persistence";
     public final static String STORE_KEY_SERIALIZER_ELMT = "key-serializer";
     public final static String STORE_VALUE_SERIALIZER_ELMT = "value-serializer";
+    public final static String STORE_TRANSFORM_SERIALIZER_ELMT = "transforms-serializer";
     public final static String STORE_SERIALIZATION_TYPE_ELMT = "type";
     public final static String STORE_SERIALIZATION_META_ELMT = "schema-info";
     public final static String STORE_COMPRESSION_ELMT = "compression";
@@ -83,9 +83,12 @@ public class StoreDefinitionsMapper {
     public final static String STORE_ZONE_REPLICATION_FACTOR_ELMT = "zone-replication-factor";
     public final static String STORE_ZONE_COUNT_READS = "zone-count-reads";
     public final static String STORE_ZONE_COUNT_WRITES = "zone-count-writes";
+    public final static String HINTED_HANDOFF_STRATEGY = "hinted-handoff-strategy";
+    public final static String HINT_PREFLIST_SIZE = "hint-preflist-size";
     public final static String VIEW_ELMT = "view";
     public final static String VIEW_TARGET_ELMT = "view-of";
     public final static String VIEW_TRANS_ELMT = "view-class";
+    public final static String VIEW_SERIALIZER_FACTORY_ELMT = "view-serializer-factory";
     private final static String STORE_VERSION_ATTR = "version";
 
     private final Schema schema;
@@ -223,6 +226,14 @@ public class StoreDefinitionsMapper {
             }
         }
 
+        HintedHandoffStrategyType hintedHandoffStrategy = null;
+        if(store.getChildText(HINTED_HANDOFF_STRATEGY) != null)
+            hintedHandoffStrategy = HintedHandoffStrategyType.fromDisplay(store.getChildText(HINTED_HANDOFF_STRATEGY));
+
+        String hintPrefListSizeStr = store.getChildText(HINT_PREFLIST_SIZE);
+        Integer hintPrefListSize = (null != hintPrefListSizeStr) ? Integer.parseInt(hintPrefListSizeStr)
+                                                                : null;
+
         return new StoreDefinitionBuilder().setName(name)
                                            .setType(storeType)
                                            .setKeySerializer(keySerializer)
@@ -239,6 +250,8 @@ public class StoreDefinitionsMapper {
                                            .setZoneReplicationFactor(zoneReplicationFactor)
                                            .setZoneCountReads(zoneCountReads)
                                            .setZoneCountWrites(zoneCountWrites)
+                                           .setHintedHandoffStrategy(hintedHandoffStrategy)
+                                           .setHintPrefListSize(hintPrefListSize)
                                            .build();
     }
 
@@ -263,17 +276,25 @@ public class StoreDefinitionsMapper {
                                                   STORE_PREFERRED_WRITES_ELMT,
                                                   target.getRequiredReads());
 
+        String viewSerializerFactoryName = null;
+        if(store.getChildText(VIEW_SERIALIZER_FACTORY_ELMT) != null) {
+            viewSerializerFactoryName = store.getChild(VIEW_SERIALIZER_FACTORY_ELMT).getText();
+        }
+
         SerializerDefinition keySerializer = target.getKeySerializer();
         SerializerDefinition valueSerializer = target.getValueSerializer();
         if(store.getChild(STORE_VALUE_SERIALIZER_ELMT) != null)
             valueSerializer = readSerializer(store.getChild(STORE_VALUE_SERIALIZER_ELMT));
 
+        SerializerDefinition transformSerializer = target.getTransformsSerializer();
+        if(store.getChild(STORE_TRANSFORM_SERIALIZER_ELMT) != null)
+            transformSerializer = readSerializer(store.getChild(STORE_TRANSFORM_SERIALIZER_ELMT));
+
         RoutingTier policy = target.getRoutingPolicy();
         if(store.getChild(STORE_ROUTING_STRATEGY) != null)
             policy = RoutingTier.fromDisplay(store.getChildText(STORE_ROUTING_STRATEGY));
 
-        // get transformations
-        View<?, ?, ?> valTrans = loadTransformation(store.getChildText(VIEW_TRANS_ELMT));
+        String viewClass = store.getChildText(VIEW_TRANS_ELMT);
 
         return new StoreDefinitionBuilder().setName(name)
                                            .setViewOf(targetName)
@@ -282,20 +303,15 @@ public class StoreDefinitionsMapper {
                                            .setRoutingStrategyType(target.getRoutingStrategyType())
                                            .setKeySerializer(keySerializer)
                                            .setValueSerializer(valueSerializer)
+                                           .setTransformsSerializer(transformSerializer)
                                            .setReplicationFactor(target.getReplicationFactor())
                                            .setPreferredReads(preferredReads)
                                            .setRequiredReads(requiredReads)
                                            .setPreferredWrites(preferredWrites)
                                            .setRequiredWrites(requiredWrites)
-                                           .setView(valTrans)
+                                           .setView(viewClass)
+                                           .setSerializerFactory(viewSerializerFactoryName)
                                            .build();
-    }
-
-    private View<?, ?, ?> loadTransformation(String className) {
-        if(className == null)
-            return null;
-        Class<?> transClass = ReflectUtils.loadClass(className.trim());
-        return (View<?, ?, ?>) ReflectUtils.callConstructor(transClass, new Object[] {});
     }
 
     private SerializerDefinition readSerializer(Element elmt) {
@@ -380,6 +396,12 @@ public class StoreDefinitionsMapper {
         if(storeDefinition.hasZoneCountWrites())
             store.addContent(new Element(STORE_ZONE_COUNT_WRITES).setText(Integer.toString(storeDefinition.getZoneCountWrites())));
 
+        if(storeDefinition.hasHintedHandoffStrategyType())
+            store.addContent(new Element(HINTED_HANDOFF_STRATEGY).setText(storeDefinition.getHintedHandoffStrategyType()
+                                                                                         .toDisplay()));
+        if(storeDefinition.hasHintPreflistSize())
+            store.addContent(new Element(HINT_PREFLIST_SIZE).setText(Integer.toString(storeDefinition.getHintPrefListSize())));
+
         Element keySerializer = new Element(STORE_KEY_SERIALIZER_ELMT);
         addSerializer(keySerializer, storeDefinition.getKeySerializer());
         store.addContent(keySerializer);
@@ -404,9 +426,7 @@ public class StoreDefinitionsMapper {
         if(storeDefinition.getValueTransformation() == null)
             throw new MappingException("View " + storeDefinition.getName()
                                        + " has no defined transformation class.");
-        store.addContent(new Element(VIEW_TRANS_ELMT).setText(storeDefinition.getValueTransformation()
-                                                                             .getClass()
-                                                                             .getName()));
+        store.addContent(new Element(VIEW_TRANS_ELMT).setText(storeDefinition.getValueTransformation()));
         store.addContent(new Element(STORE_ROUTING_TIER_ELMT).setText(storeDefinition.getRoutingPolicy()
                                                                                      .toDisplay()));
         if(storeDefinition.hasPreferredReads())
@@ -420,6 +440,17 @@ public class StoreDefinitionsMapper {
         addSerializer(valueSerializer, storeDefinition.getValueSerializer());
         store.addContent(valueSerializer);
 
+        Element transformsSerializer = new Element(STORE_TRANSFORM_SERIALIZER_ELMT);
+        if(storeDefinition.getTransformsSerializer() != null) {
+            addSerializer(transformsSerializer, storeDefinition.getTransformsSerializer());
+            store.addContent(transformsSerializer);
+        }
+
+        Element serializerFactory = new Element(VIEW_SERIALIZER_FACTORY_ELMT);
+        if(storeDefinition.getSerializerFactory() != null) {
+            serializerFactory.setText(storeDefinition.getSerializerFactory());
+            store.addContent(serializerFactory);
+        }
         return store;
     }
 

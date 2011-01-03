@@ -71,6 +71,8 @@ public class PerformParallelGetAllRequests
             logger.trace("Attempting " + attempts + " " + pipeline.getOperation().getSimpleName()
                          + " operations in parallel");
 
+        Map<ByteArray, byte[]> transforms = pipelineData.getTransforms();
+
         for(Map.Entry<Node, List<ByteArray>> entry: pipelineData.getNodeToKeysMap().entrySet()) {
             final Node node = entry.getKey();
             final Collection<ByteArray> keys = entry.getValue();
@@ -83,12 +85,18 @@ public class PerformParallelGetAllRequests
                                      + " response received (" + requestTime + " ms.) from node "
                                      + node.getId());
 
-                    responses.put(node.getId(),
-                                  new Response<Iterable<ByteArray>, Object>(node,
-                                                                            keys,
-                                                                            result,
-                                                                            requestTime));
+                    Response<Iterable<ByteArray>, Object> response = new Response<Iterable<ByteArray>, Object>(node,
+                                                                                                               keys,
+                                                                                                               result,
+                                                                                                               requestTime);
+                    responses.put(node.getId(), response);
                     latch.countDown();
+
+                    // Note errors that come in after the pipeline has finished.
+                    // These will *not* get a chance to be called in the loop of
+                    // responses below.
+                    if(pipeline.isFinished() && response.getValue() instanceof Exception)
+                        handleResponseError(response, pipeline, failureDetector);
                 }
 
             };
@@ -98,7 +106,7 @@ public class PerformParallelGetAllRequests
                              + " request on node " + node.getId());
 
             NonblockingStore store = nonblockingStores.get(node.getId());
-            store.submitGetAllRequest(keys, callback);
+            store.submitGetAllRequest(keys, transforms, callback, timeoutMs);
         }
 
         try {

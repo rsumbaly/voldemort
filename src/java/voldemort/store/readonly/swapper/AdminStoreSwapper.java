@@ -13,7 +13,6 @@ import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
 import voldemort.client.protocol.admin.AdminClient;
-import voldemort.client.protocol.admin.AdminClientConfig;
 import voldemort.cluster.Cluster;
 import voldemort.cluster.Node;
 import voldemort.utils.RebalanceUtils;
@@ -28,29 +27,40 @@ public class AdminStoreSwapper extends StoreSwapper {
     private AdminClient adminClient;
     private long timeoutMs;
 
-    public AdminStoreSwapper(Cluster cluster, ExecutorService executor, long timeoutMs) {
+    public AdminStoreSwapper(Cluster cluster,
+                             ExecutorService executor,
+                             AdminClient adminClient,
+                             long timeoutMs) {
         super(cluster, executor);
-        this.adminClient = new AdminClient(cluster, new AdminClientConfig());
+        this.adminClient = adminClient;
         this.timeoutMs = timeoutMs;
     }
 
-    public void invokeRollback(final String storeName) {
+    @Override
+    public void invokeRollback(final String storeName, final long pushVersion) {
+        Exception exception = null;
         for(Node node: cluster.getNodes()) {
             try {
                 logger.info("Attempting rollback for node " + node.getId() + " storeName = "
                             + storeName);
-                adminClient.rollbackStore(node.getId(), storeName);
+                adminClient.rollbackStore(node.getId(), storeName, pushVersion);
                 logger.info("Rollback succeeded for node " + node.getId());
             } catch(Exception e) {
+                exception = e;
                 logger.error("Exception thrown during rollback operation on node " + node.getId()
                              + ": ", e);
             }
         }
 
+        if(exception != null)
+            throw new VoldemortException(exception);
+
     }
 
     @Override
-    protected List<String> invokeFetch(final String storeName, final String basePath) {
+    protected List<String> invokeFetch(final String storeName,
+                                       final String basePath,
+                                       final long pushVersion) {
         // do fetch
         Map<Integer, Future<String>> fetchDirs = new HashMap<Integer, Future<String>>();
         for(final Node node: cluster.getNodes()) {
@@ -62,6 +72,7 @@ public class AdminStoreSwapper extends StoreSwapper {
                     String response = adminClient.fetchStore(node.getId(),
                                                              storeName,
                                                              storeDir,
+                                                             pushVersion,
                                                              timeoutMs);
                     if(response == null)
                         throw new VoldemortException("Swap request on node " + node.getId() + " ("

@@ -36,7 +36,7 @@ public class PerformZoneSerialRequests<V, PD extends BasicPipelineData<V>> exten
 
     private final FailureDetector failureDetector;
 
-    private final Map<Integer, Store<ByteArray, byte[]>> stores;
+    private final Map<Integer, Store<ByteArray, byte[], byte[]>> stores;
 
     private final StoreRequest<V> storeRequest;
 
@@ -44,7 +44,7 @@ public class PerformZoneSerialRequests<V, PD extends BasicPipelineData<V>> exten
                                      Event completeEvent,
                                      ByteArray key,
                                      FailureDetector failureDetector,
-                                     Map<Integer, Store<ByteArray, byte[]>> stores,
+                                     Map<Integer, Store<ByteArray, byte[], byte[]>> stores,
                                      StoreRequest<V> storeRequest) {
         super(pipelineData, completeEvent, key);
         this.failureDetector = failureDetector;
@@ -61,7 +61,7 @@ public class PerformZoneSerialRequests<V, PD extends BasicPipelineData<V>> exten
             long start = System.nanoTime();
 
             try {
-                Store<ByteArray, byte[]> store = stores.get(node.getId());
+                Store<ByteArray, byte[], byte[]> store = stores.get(node.getId());
                 V result = storeRequest.request(store);
 
                 Response<ByteArray, V> response = new Response<ByteArray, V>(node,
@@ -95,7 +95,7 @@ public class PerformZoneSerialRequests<V, PD extends BasicPipelineData<V>> exten
                                                                               + zonesSatisfied
                                                                               + " succeeded"));
 
-            pipeline.addEvent(Event.ERROR);
+            pipeline.abort();
         }
     }
 }

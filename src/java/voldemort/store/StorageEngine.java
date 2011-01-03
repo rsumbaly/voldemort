@@ -39,9 +39,10 @@ import voldemort.versioning.Versioned;
  * 
  * @param <K> The type of the key being stored
  * @param <V> The type of the value being stored
+ * @param <T> The type of the transforms
  * 
  */
-public interface StorageEngine<K, V> extends Store<K, V> {
+public interface StorageEngine<K, V, T> extends Store<K, V, T> {
 
     /**
      * Get an iterator over pairs of entries in the store. The key is the first

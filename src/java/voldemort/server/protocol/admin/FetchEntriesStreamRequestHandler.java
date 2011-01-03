@@ -41,15 +41,16 @@ public class FetchEntriesStreamRequestHandler extends FetchStreamRequestHandler 
               networkClassLoader);
     }
 
-    public StreamRequestHandlerState handleRequest(DataInputStream inputStream, DataOutputStream outputStream)
+    public StreamRequestHandlerState handleRequest(DataInputStream inputStream,
+                                                   DataOutputStream outputStream)
             throws IOException {
         if(!keyIterator.hasNext())
             return StreamRequestHandlerState.COMPLETE;
 
         ByteArray key = keyIterator.next();
 
-        if(validPartition(key.get())) {
-            for(Versioned<byte[]> value: storageEngine.get(key)) {
+        if(validPartition(key.get()) && counter % skipRecords == 0) {
+            for(Versioned<byte[]> value: storageEngine.get(key, null)) {
                 throttler.maybeThrottle(key.length());
                 if(filter.accept(key, value)) {
                     fetched++;

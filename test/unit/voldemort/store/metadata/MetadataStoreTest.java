@@ -18,6 +18,7 @@ package voldemort.store.metadata;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 
 import junit.framework.TestCase;
@@ -40,7 +41,8 @@ public class MetadataStoreTest extends TestCase {
     private MetadataStore metadataStore;
     private List<String> TEST_KEYS = Arrays.asList(MetadataStore.CLUSTER_KEY,
                                                    MetadataStore.STORES_KEY,
-                                                   MetadataStore.REBALANCING_STEAL_INFO);
+                                                   MetadataStore.REBALANCING_STEAL_INFO,
+                                                   MetadataStore.SERVER_STATE_KEY);
 
     @Override
     public void setUp() throws Exception {
@@ -78,7 +80,10 @@ public class MetadataStoreTest extends TestCase {
                                                                                                     (int) Math.random() * 5,
                                                                                                     partition,
                                                                                                     new ArrayList<Integer>(0),
+                                                                                                    new ArrayList<Integer>(0),
                                                                                                     Arrays.asList("testStoreName"),
+                                                                                                    new HashMap<String, String>(),
+                                                                                                    new HashMap<String, String>(),
                                                                                                     (int) Math.random() * 3))).toJsonString(),
                                       "UTF-8");
         }
@@ -89,12 +94,12 @@ public class MetadataStoreTest extends TestCase {
     public void testSimpleGetAndPut() {
         for(int i = 0; i <= TEST_RUNS; i++) {
             ByteArray key = getValidKey();
-            VectorClock clock = (VectorClock) metadataStore.get(key).get(0).getVersion();
+            VectorClock clock = (VectorClock) metadataStore.get(key, null).get(0).getVersion();
             Versioned<byte[]> value = new Versioned<byte[]>(getValidValue(key),
                                                             clock.incremented(0, 1));
 
-            metadataStore.put(key, value);
-            checkValues(value, metadataStore.get(key), key);
+            metadataStore.put(key, value, null);
+            checkValues(value, metadataStore.get(key, null), key);
         }
     }
 
@@ -103,12 +108,12 @@ public class MetadataStoreTest extends TestCase {
             for(int j = 0; j <= 5; j++) {
                 ByteArray key = getValidKey();
 
-                VectorClock clock = (VectorClock) metadataStore.get(key).get(0).getVersion();
+                VectorClock clock = (VectorClock) metadataStore.get(key, null).get(0).getVersion();
                 Versioned<byte[]> value = new Versioned<byte[]>(getValidValue(key),
                                                                 clock.incremented(0, 1));
 
-                metadataStore.put(key, value);
-                checkValues(value, metadataStore.get(key), key);
+                metadataStore.put(key, value, null);
+                checkValues(value, metadataStore.get(key, null), key);
             }
         }
     }
@@ -116,14 +121,14 @@ public class MetadataStoreTest extends TestCase {
     public void testObsoletePut() {
         for(int i = 0; i <= TEST_RUNS; i++) {
             ByteArray key = getValidKey();
-            VectorClock clock = (VectorClock) metadataStore.get(key).get(0).getVersion();
+            VectorClock clock = (VectorClock) metadataStore.get(key, null).get(0).getVersion();
             Versioned<byte[]> value = new Versioned<byte[]>(getValidValue(key),
                                                             clock.incremented(0, 1));
 
             try {
-                metadataStore.put(key, value);
+                metadataStore.put(key, value, null);
                 assertTrue(true);
-                metadataStore.put(key, value);
+                metadataStore.put(key, value, null);
                 fail();
             } catch(ObsoleteVersionException e) {
                 // expected ObsoleteVersionException
@@ -134,33 +139,28 @@ public class MetadataStoreTest extends TestCase {
     public void testSynchronousPut() {
         for(int i = 0; i <= TEST_RUNS; i++) {
             ByteArray key = getValidKey();
-            VectorClock clock = (VectorClock) metadataStore.get(key).get(0).getVersion();
+            VectorClock clock = (VectorClock) metadataStore.get(key, null).get(0).getVersion();
 
             Versioned<byte[]> value1 = new Versioned<byte[]>(getValidValue(key),
                                                              clock.incremented(1, 1));
             Versioned<byte[]> value2 = new Versioned<byte[]>(getValidValue(key),
                                                              clock.incremented(2, 1));
 
-            metadataStore.put(key, value1);
-            metadataStore.put(key, value2);
+            metadataStore.put(key, value1, null);
+            metadataStore.put(key, value2, null);
 
-            assertEquals("Only one metadata value should return", 1, metadataStore.get(key).size());
-            checkValues(value2, metadataStore.get(key), key);
+            assertEquals("Only one metadata value should return", 1, metadataStore.get(key, null)
+                                                                                  .size());
+            checkValues(value2, metadataStore.get(key, null), key);
         }
     }
 
     public void testCleanAllStates() {
         // put state entries.
         incrementVersionAndPut(metadataStore,
-                               MetadataStore.CLUSTER_STATE_KEY,
-                               MetadataStore.VoldemortState.REBALANCING_CLUSTER);
-        incrementVersionAndPut(metadataStore,
                                MetadataStore.SERVER_STATE_KEY,
                                MetadataStore.VoldemortState.REBALANCING_MASTER_SERVER);
 
-        assertEquals("Values should match.",
-                     metadataStore.getClusterState(),
-                     VoldemortState.REBALANCING_CLUSTER);
         assertEquals("Values should match.",
                      metadataStore.getServerState(),
                      VoldemortState.REBALANCING_MASTER_SERVER);
@@ -169,9 +169,6 @@ public class MetadataStoreTest extends TestCase {
         metadataStore.cleanAllRebalancingState();
 
         // check all values revert back to default.
-        assertEquals("Values should match.",
-                     metadataStore.getClusterState(),
-                     VoldemortState.NORMAL_CLUSTER);
         assertEquals("Values should match.",
                      metadataStore.getServerState(),
                      VoldemortState.NORMAL_SERVER);

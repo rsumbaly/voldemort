@@ -67,11 +67,13 @@ public interface StoreClientFactory {
      * 
      * @param <K> The key type
      * @param <V> The value type
+     * @param <T> The transform type
      * @param storeName The name of the store
      * @param resolver The inconsistency resolver
      * @return The appropriate store
      */
-    <K, V> Store<K, V> getRawStore(String storeName, InconsistencyResolver<Versioned<V>> resolver);
+    <K, V, T> Store<K, V, T> getRawStore(String storeName,
+                                         InconsistencyResolver<Versioned<V>> resolver);
 
     /**
      * Close the store client
@@ -79,8 +81,8 @@ public interface StoreClientFactory {
     public void close();
 
     /**
-     * Returns the FailureDetector specific to the cluster against
-     * which this client factory is based.
+     * Returns the FailureDetector specific to the cluster against which this
+     * client factory is based.
      * 
      * @return FailureDetector
      */

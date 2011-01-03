@@ -8,11 +8,16 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 
 import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
+import voldemort.cluster.Node;
+import voldemort.routing.RoutingStrategy;
+import voldemort.utils.ByteUtils;
 import voldemort.utils.Utils;
 
 /**
@@ -24,25 +29,66 @@ public class ChunkedFileSet {
 
     private static Logger logger = Logger.getLogger(ChunkedFileSet.class);
 
-    private final int numChunks;
+    private final int numChunks, nodeId;
     private final File baseDir;
     private final List<Integer> indexFileSizes;
     private final List<Integer> dataFileSizes;
     private final List<MappedByteBuffer> indexFiles;
     private final List<FileChannel> dataFiles;
+    private final HashMap<Integer, Integer> partitionToChunkStart, partitionToNumChunks;
+    private HashSet<Integer> partitionIds;
+    private RoutingStrategy routingStrategy;
+    private ReadOnlyStorageFormat storageFormat;
 
-    public ChunkedFileSet(File directory) {
+    public ChunkedFileSet(File directory, RoutingStrategy routingStrategy, int nodeId) {
         this.baseDir = directory;
         if(!Utils.isReadableDir(directory))
             throw new VoldemortException(directory.getAbsolutePath()
                                          + " is not a readable directory.");
+
+        // Check if format file exists
+        File metadataFile = new File(baseDir, ".metadata");
+        ReadOnlyStorageMetadata metadata = new ReadOnlyStorageMetadata();
+        if(Utils.isReadableFile(metadataFile)) {
+            try {
+                metadata = new ReadOnlyStorageMetadata(metadataFile);
+            } catch(IOException e) {
+                logger.warn("Cannot read metadata file, assuming default values");
+            }
+        } else {
+            logger.warn("Metadata file not found. Assuming default settings");
+        }
+
+        this.storageFormat = ReadOnlyStorageFormat.fromCode((String) metadata.get(ReadOnlyStorageMetadata.FORMAT,
+                                                                                  ReadOnlyStorageFormat.READONLY_V0.getCode()));
         this.indexFileSizes = new ArrayList<Integer>();
         this.dataFileSizes = new ArrayList<Integer>();
         this.indexFiles = new ArrayList<MappedByteBuffer>();
         this.dataFiles = new ArrayList<FileChannel>();
+        this.partitionToChunkStart = new HashMap<Integer, Integer>();
+        this.partitionToNumChunks = new HashMap<Integer, Integer>();
+        this.nodeId = nodeId;
+        setRoutingStrategy(routingStrategy);
 
+        switch(storageFormat) {
+            case READONLY_V0:
+                initV0();
+                break;
+            case READONLY_V1:
+                initV1();
+                break;
+            default:
+                throw new VoldemortException("Invalid chunked storage format type " + storageFormat);
+        }
+
+        this.numChunks = indexFileSizes.size();
+        logger.trace("Opened chunked file set for " + baseDir + " with " + indexFileSizes.size()
+                     + " chunks.");
+    }
+
+    public void initV0() {
         // if the directory is empty create empty files
-        if(baseDir.list() != null && baseDir.list().length == 0) {
+        if(baseDir.list() != null && baseDir.list().length <= 1) {
             try {
                 new File(baseDir, "0.index").createNewFile();
                 new File(baseDir, "0.data").createNewFile();
@@ -77,9 +123,74 @@ public class ChunkedFileSet {
         }
         if(chunkId == 0)
             throw new VoldemortException("No data chunks found in directory " + baseDir.toString());
-        this.numChunks = chunkId;
-        logger.trace("Opened chunked file set for " + baseDir + " with " + indexFileSizes.size()
-                     + " chunks.");
+    }
+
+    public void initV1() {
+        int globalChunkId = 0;
+        if(this.partitionIds != null) {
+            for(Integer partitionId: this.partitionIds) {
+                int chunkId = 0;
+                while(true) {
+                    String fileName = Integer.toString(partitionId) + "_"
+                                      + Integer.toString(chunkId);
+                    File index = new File(baseDir, fileName + ".index");
+                    File data = new File(baseDir, fileName + ".data");
+                    if(!index.exists() && !data.exists()) {
+                        if(chunkId == 0) {
+                            // create empty files for this partition
+                            try {
+                                new File(baseDir, fileName + ".index").createNewFile();
+                                new File(baseDir, fileName + ".data").createNewFile();
+                                logger.info("No index or data files found, creating empty files for partition "
+                                            + partitionId);
+                            } catch(IOException e) {
+                                throw new VoldemortException("Error creating empty read-only files.",
+                                                             e);
+                            }
+                        } else {
+                            break;
+                        }
+                    } else if(index.exists() ^ data.exists())
+                        throw new VoldemortException("One of the following does not exist: "
+                                                     + index.toString() + " and " + data.toString()
+                                                     + ".");
+                    if(chunkId == 0)
+                        partitionToChunkStart.put(partitionId, globalChunkId);
+
+                    /* Deal with file sizes */
+                    long indexLength = index.length();
+                    long dataLength = data.length();
+                    validateFileSizes(indexLength, dataLength);
+                    indexFileSizes.add((int) indexLength);
+                    dataFileSizes.add((int) dataLength);
+
+                    /* Add the file channel for data */
+                    dataFiles.add(openChannel(data));
+                    indexFiles.add(mapFile(index));
+                    chunkId++;
+                    globalChunkId++;
+                }
+                partitionToNumChunks.put(partitionId, chunkId);
+            }
+
+            if(indexFileSizes.size() == 0)
+                throw new VoldemortException("No data chunks found in directory "
+                                             + baseDir.toString());
+        }
+    }
+
+    private void setRoutingStrategy(RoutingStrategy routingStrategy) {
+        this.routingStrategy = routingStrategy;
+
+        // generate partitions list
+        this.partitionIds = null;
+        for(Node node: routingStrategy.getNodes()) {
+            if(node.getId() == this.nodeId) {
+                this.partitionIds = new HashSet<Integer>();
+                this.partitionIds.addAll(node.getPartitionIds());
+                break;
+            }
+        }
     }
 
     public void validateFileSizes(long indexLength, long dataLength) {
@@ -132,7 +243,25 @@ public class ChunkedFileSet {
     }
 
     public int getChunkForKey(byte[] key) {
-        return ReadOnlyUtils.chunk(key, numChunks);
+        switch(storageFormat) {
+            case READONLY_V0: {
+                return ReadOnlyUtils.chunk(ByteUtils.md5(key), numChunks);
+            }
+            case READONLY_V1: {
+                List<Integer> partitionList = routingStrategy.getPartitionList(key);
+                partitionList.retainAll(partitionIds);
+                if(partitionList.size() != 1)
+                    return -1;
+
+                Integer chunkId = ReadOnlyUtils.chunk(ByteUtils.md5(key),
+                                                      partitionToNumChunks.get(partitionList.get(0)));
+                return partitionToChunkStart.get(partitionList.get(0)) + chunkId;
+            }
+            default: {
+                return -1;
+            }
+        }
+
     }
 
     public ByteBuffer indexFileFor(int chunk) {

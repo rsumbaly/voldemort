@@ -16,16 +16,24 @@
 
 package voldemort.client;
 
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
+
+import org.apache.commons.io.IOUtils;
 
 import voldemort.client.protocol.RequestFormatType;
 import voldemort.cluster.Zone;
 import voldemort.cluster.failuredetector.FailureDetectorConfig;
 import voldemort.serialization.DefaultSerializerFactory;
 import voldemort.serialization.SerializerFactory;
+import voldemort.utils.ConfigurationException;
 import voldemort.utils.Props;
 import voldemort.utils.ReflectUtils;
 import voldemort.utils.Utils;
@@ -37,7 +45,7 @@ import voldemort.utils.Utils;
  */
 public class ClientConfig {
 
-    private volatile int maxConnectionsPerNode = 6;
+    private volatile int maxConnectionsPerNode = 50;
     private volatile int maxTotalConnections = 500;
     private volatile int maxThreads = 5;
     private volatile int maxQueuedRequests = 50;
@@ -45,7 +53,7 @@ public class ClientConfig {
     private volatile long connectionTimeoutMs = 500;
     private volatile long socketTimeoutMs = 5000;
     private volatile boolean socketKeepAlive = false;
-    private volatile int selectors = 4;
+    private volatile int selectors = 8;
     private volatile long routingTimeoutMs = 15000;
     private volatile int socketBufferSize = 64 * 1024;
     private volatile SerializerFactory serializerFactory = new DefaultSerializerFactory();
@@ -54,7 +62,7 @@ public class ClientConfig {
     private volatile RoutingTier routingTier = RoutingTier.CLIENT;
     private volatile boolean enableJmx = true;
 
-    private volatile boolean enablePipelineRoutedStore = false;
+    private volatile boolean enablePipelineRoutedStore = true;
     private volatile int clientZoneId = Zone.DEFAULT_ZONE_ID;
 
     private volatile String failureDetectorImplementation = FailureDetectorConfig.DEFAULT_IMPLEMENTATION_CLASS_NAME;
@@ -89,6 +97,7 @@ public class ClientConfig {
     public static final String REQUEST_FORMAT_PROPERTY = "request_format";
     public static final String ENABLE_JMX_PROPERTY = "enable_jmx";
     public static final String ENABLE_PIPELINE_ROUTED_STORE_PROPERTY = "enable_pipeline_routed_store";
+    public static final String ENABLE_HINTED_HANDOFF_PROPERTY = "enable_hinted_handoff";
     public static final String CLIENT_ZONE_ID = "client_zone_id";
     public static final String FAILUREDETECTOR_IMPLEMENTATION_PROPERTY = "failuredetector_implementation";
     public static final String FAILUREDETECTOR_BANNAGE_PERIOD_PROPERTY = "failuredetector_bannage_period";
@@ -101,6 +110,25 @@ public class ClientConfig {
     public static final String MAX_BOOTSTRAP_RETRIES = "max_bootstrap_retries";
 
     /**
+     * Instantiate the client config using a properties file
+     * 
+     * @param propertyFile Properties file
+     */
+    public ClientConfig(File propertyFile) {
+        Properties properties = new Properties();
+        InputStream input = null;
+        try {
+            input = new BufferedInputStream(new FileInputStream(propertyFile.getAbsolutePath()));
+            properties.load(input);
+        } catch(IOException e) {
+            throw new ConfigurationException(e);
+        } finally {
+            IOUtils.closeQuietly(input);
+        }
+        setProperties(properties);
+    }
+
+    /**
      * Initiate the client config from a set of properties. This is useful for
      * wiring from Spring or for externalizing client properties to a properties
      * file
@@ -108,6 +136,10 @@ public class ClientConfig {
      * @param properties The properties to use
      */
     public ClientConfig(Properties properties) {
+        setProperties(properties);
+    }
+
+    private void setProperties(Properties properties) {
         Props props = new Props(properties);
         if(props.containsKey(MAX_CONNECTIONS_PER_NODE_PROPERTY))
             this.setMaxConnectionsPerNode(props.getInt(MAX_CONNECTIONS_PER_NODE_PROPERTY));

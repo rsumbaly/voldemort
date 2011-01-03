@@ -60,16 +60,17 @@ public abstract class AbstractAction<K, V, PD extends PipelineData<K, V>> implem
         if(logger.isEnabledFor(Level.WARN))
             logger.warn("Error in " + pipeline.getOperation().getSimpleName() + " on node "
                         + node.getId() + "(" + node.getHost() + ")", e);
-
+        
         if(e instanceof UnreachableStoreException) {
+            pipelineData.addFailedNode(node);
             pipelineData.recordFailure(e);
             failureDetector.recordException(node, requestTime, (UnreachableStoreException) e);
         } else if(e instanceof VoldemortApplicationException) {
             pipelineData.setFatalError((VoldemortApplicationException) e);
-            pipeline.addEvent(Event.ERROR);
+            pipeline.abort();
 
-            if(logger.isEnabledFor(Level.WARN))
-                logger.warn("Error is fatal - aborting further pipeline processing");
+            if(logger.isEnabledFor(Level.TRACE))
+                logger.trace("Error is terminal - aborting further pipeline processing");
 
             return true;
         } else {

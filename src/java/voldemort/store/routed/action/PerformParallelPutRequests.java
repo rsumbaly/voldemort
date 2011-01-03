@@ -16,6 +16,7 @@
 
 package voldemort.store.routed.action;
 
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -29,14 +30,18 @@ import voldemort.cluster.Node;
 import voldemort.cluster.failuredetector.FailureDetector;
 import voldemort.store.InsufficientOperationalNodesException;
 import voldemort.store.InsufficientZoneResponsesException;
+import voldemort.store.UnreachableStoreException;
 import voldemort.store.nonblockingstore.NonblockingStore;
 import voldemort.store.nonblockingstore.NonblockingStoreCallback;
 import voldemort.store.routed.Pipeline;
 import voldemort.store.routed.PutPipelineData;
 import voldemort.store.routed.Response;
 import voldemort.store.routed.Pipeline.Event;
+import voldemort.store.slop.HintedHandoff;
+import voldemort.store.slop.Slop;
 import voldemort.utils.ByteArray;
 import voldemort.utils.Time;
+import voldemort.versioning.ObsoleteVersionException;
 import voldemort.versioning.Versioned;
 
 public class PerformParallelPutRequests extends
@@ -52,25 +57,40 @@ public class PerformParallelPutRequests extends
 
     private final FailureDetector failureDetector;
 
+    private byte[] transforms;
+
+    private final HintedHandoff hintedHandoff;
+
+    public boolean enableHintedHandoff;
+
     public PerformParallelPutRequests(PutPipelineData pipelineData,
                                       Event completeEvent,
                                       ByteArray key,
+                                      byte[] transforms,
                                       FailureDetector failureDetector,
                                       int preferred,
                                       int required,
                                       long timeoutMs,
-                                      Map<Integer, NonblockingStore> nonblockingStores) {
+                                      Map<Integer, NonblockingStore> nonblockingStores,
+                                      HintedHandoff hintedHandoff) {
         super(pipelineData, completeEvent, key);
         this.failureDetector = failureDetector;
         this.preferred = preferred;
         this.required = required;
         this.timeoutMs = timeoutMs;
+        this.transforms = transforms;
         this.nonblockingStores = nonblockingStores;
+        this.hintedHandoff = hintedHandoff;
+        this.enableHintedHandoff = hintedHandoff != null;
+    }
+
+    public boolean isHintedHandoffEnabled() {
+        return enableHintedHandoff;
     }
 
     public void execute(final Pipeline pipeline) {
         Node master = pipelineData.getMaster();
-        Versioned<byte[]> versionedCopy = pipelineData.getVersionedCopy();
+        final Versioned<byte[]> versionedCopy = pipelineData.getVersionedCopy();
 
         if(logger.isDebugEnabled())
             logger.debug("Serial put requests determined master node as " + master.getId()
@@ -101,12 +121,40 @@ public class PerformParallelPutRequests extends
                                      + " response received (" + requestTime + " ms.) from node "
                                      + node.getId());
 
-                    responses.put(node.getId(), new Response<ByteArray, Object>(node,
-                                                                                key,
-                                                                                result,
-                                                                                requestTime));
+                    Response<ByteArray, Object> response = new Response<ByteArray, Object>(node,
+                                                                                           key,
+                                                                                           result,
+                                                                                           requestTime);
+                    responses.put(node.getId(), response);
+
+                    if(isHintedHandoffEnabled() && pipeline.isFinished()) {
+                        if(response.getValue() instanceof UnreachableStoreException) {
+                            Slop slop = new Slop(pipelineData.getStoreName(),
+                                                 Slop.Operation.PUT,
+                                                 key,
+                                                 versionedCopy.getValue(),
+                                                 transforms,
+                                                 node.getId(),
+                                                 new Date());
+                            pipelineData.addFailedNode(node);
+                            hintedHandoff.sendHintSerial(node, versionedCopy.getVersion(), slop);
+                        }
+                    }
+
                     attemptsLatch.countDown();
                     blocksLatch.countDown();
+
+                    if(logger.isTraceEnabled())
+                        logger.trace(attemptsLatch.getCount() + " attempts remaining. Will block "
+                                     + " for " + blocksLatch.getCount() + " more ");
+
+                    // Note errors that come in after the pipeline has finished.
+                    // These will *not* get a chance to be called in the loop of
+                    // responses below.
+                    if(pipeline.isFinished() && response.getValue() instanceof Exception
+                       && !(response.getValue() instanceof ObsoleteVersionException)) {
+                        handleResponseError(response, pipeline, failureDetector);
+                    }
                 }
 
             };
@@ -116,7 +164,7 @@ public class PerformParallelPutRequests extends
                              + " request on node " + node.getId());
 
             NonblockingStore store = nonblockingStores.get(node.getId());
-            store.submitPutRequest(key, versionedCopy, callback);
+            store.submitPutRequest(key, versionedCopy, transforms, callback, timeoutMs);
         }
 
         try {
@@ -132,7 +180,13 @@ public class PerformParallelPutRequests extends
         for(Entry<Integer, Response<ByteArray, Object>> responseEntry: responses.entrySet()) {
             Response<ByteArray, Object> response = responseEntry.getValue();
             if(response.getValue() instanceof Exception) {
-                if(handleResponseError(response, pipeline, failureDetector))
+                if(response.getValue() instanceof ObsoleteVersionException) {
+                    // ignore this completely here
+                    // this means that a higher version was able
+                    // to write on this node and should be termed as
+                    // clean success.
+                    responses.remove(responseEntry.getKey());
+                } else if(handleResponseError(response, pipeline, failureDetector))
                     return;
             } else {
                 pipelineData.incrementSuccesses();
@@ -157,7 +211,13 @@ public class PerformParallelPutRequests extends
                 for(Entry<Integer, Response<ByteArray, Object>> responseEntry: responses.entrySet()) {
                     Response<ByteArray, Object> response = responseEntry.getValue();
                     if(response.getValue() instanceof Exception) {
-                        if(handleResponseError(response, pipeline, failureDetector))
+                        if(response.getValue() instanceof ObsoleteVersionException) {
+                            // ignore this completely here
+                            // this means that a higher version was able
+                            // to write on this node and should be termed as
+                            // clean success.
+                            responses.remove(responseEntry.getKey());
+                        } else if(handleResponseError(response, pipeline, failureDetector))
                             return;
                     } else {
                         pipelineData.incrementSuccesses();
@@ -177,8 +237,7 @@ public class PerformParallelPutRequests extends
                                                                                              + pipelineData.getSuccesses()
                                                                                              + " succeeded",
                                                                                      pipelineData.getFailures()));
-
-                pipeline.addEvent(Event.ERROR);
+                pipeline.abort();
                 quorumSatisfied = false;
             }
         }
@@ -226,8 +285,7 @@ public class PerformParallelPutRequests extends
                                                                                           + "s required zone, but only "
                                                                                           + zonesSatisfied
                                                                                           + " succeeded"));
-
-                        pipeline.addEvent(Event.ERROR);
+                        pipeline.abort();
                     }
                 }
 

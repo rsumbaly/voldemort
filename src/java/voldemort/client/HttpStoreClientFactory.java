@@ -56,7 +56,6 @@ public class HttpStoreClientFactory extends AbstractStoreClientFactory {
     private static final String VOLDEMORT_USER_AGENT = "vldmrt/0.01";
 
     private final HttpClient httpClient;
-    private final MultiThreadedHttpConnectionManager connectionManager;
     private final RequestFormatFactory requestFormatFactory;
     private final boolean reroute;
 
@@ -64,7 +63,7 @@ public class HttpStoreClientFactory extends AbstractStoreClientFactory {
         super(config);
         HostConfiguration hostConfig = new HostConfiguration();
         hostConfig.getParams().setParameter("http.protocol.version", HttpVersion.HTTP_1_1);
-        this.connectionManager = new MultiThreadedHttpConnectionManager();
+        MultiThreadedHttpConnectionManager connectionManager = new MultiThreadedHttpConnectionManager();
         this.httpClient = new HttpClient(connectionManager);
         this.httpClient.setHostConfiguration(hostConfig);
         HttpClientParams clientParams = this.httpClient.getParams();
@@ -86,10 +85,10 @@ public class HttpStoreClientFactory extends AbstractStoreClientFactory {
     }
 
     @Override
-    protected Store<ByteArray, byte[]> getStore(String name,
-                                                String host,
-                                                int port,
-                                                RequestFormatType type) {
+    protected Store<ByteArray, byte[], byte[]> getStore(String name,
+                                                        String host,
+                                                        int port,
+                                                        RequestFormatType type) {
         return new HttpStore(name,
                              host,
                              port,
@@ -104,7 +103,7 @@ public class HttpStoreClientFactory extends AbstractStoreClientFactory {
         ClientStoreVerifier storeVerifier = new ClientStoreVerifier() {
 
             @Override
-            protected Store<ByteArray, byte[]> getStoreInternal(Node node) {
+            protected Store<ByteArray, byte[], byte[]> getStoreInternal(Node node) {
                 return HttpStoreClientFactory.this.getStore(MetadataStore.METADATA_STORE_NAME,
                                                             node.getHost(),
                                                             node.getHttpPort(),

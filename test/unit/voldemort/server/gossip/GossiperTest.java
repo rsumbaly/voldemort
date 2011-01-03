@@ -26,7 +26,6 @@ import voldemort.client.protocol.admin.AdminClient;
 import voldemort.client.protocol.admin.AdminClientConfig;
 import voldemort.cluster.Cluster;
 import voldemort.cluster.Node;
-import voldemort.server.VoldemortConfig;
 import voldemort.server.VoldemortServer;
 import voldemort.store.metadata.MetadataStore;
 import voldemort.store.socket.SocketStoreFactory;
@@ -48,7 +47,6 @@ public class GossiperTest extends TestCase {
                                                                                   10000,
                                                                                   100000,
                                                                                   32 * 1024);
-    private static String testStoreName = "test-replication-memory";
     private static String storesXmlfile = "test/common/voldemort/config/stores.xml";
     private final boolean useNio;
 
@@ -110,7 +108,7 @@ public class GossiperTest extends TestCase {
         socketStoreFactory.close();
     }
 
-    private AdminClient getAdminClient(Cluster newCluster, VoldemortConfig newServerConfig) {
+    private AdminClient getAdminClient(Cluster newCluster) {
         return new AdminClient(newCluster, new AdminClientConfig());
     }
 
@@ -158,7 +156,7 @@ public class GossiperTest extends TestCase {
         }
 
         // Get the new cluster.xml
-        AdminClient localAdminClient = getAdminClient(newCluster, newServer.getVoldemortConfig());
+        AdminClient localAdminClient = getAdminClient(newCluster);
 
         Versioned<String> versionedClusterXML = localAdminClient.getRemoteMetadata(3,
                                                                                    MetadataStore.CLUSTER_KEY);

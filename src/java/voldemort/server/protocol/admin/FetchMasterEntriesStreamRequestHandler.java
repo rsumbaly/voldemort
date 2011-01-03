@@ -53,8 +53,8 @@ public class FetchMasterEntriesStreamRequestHandler extends FetchStreamRequestHa
 
         // Since Master-Only filter does not need value, we can save some disk
         // seeks by getting back only Master replica values
-        if(validPartition(key.get()) && filter.accept(key, null)) {
-            for(Versioned<byte[]> value: storageEngine.get(key)) {
+        if(validPartition(key.get()) && filter.accept(key, null) && counter % skipRecords == 0) {
+            for(Versioned<byte[]> value: storageEngine.get(key, null)) {
                 throttler.maybeThrottle(key.length());
                 fetched++;
                 VAdminProto.FetchPartitionEntriesResponse.Builder response = VAdminProto.FetchPartitionEntriesResponse.newBuilder();

@@ -28,7 +28,9 @@ import java.nio.channels.SocketChannel;
 
 import org.apache.log4j.Level;
 
+import voldemort.utils.SelectorManager;
 import voldemort.utils.SelectorManagerWorker;
+import voldemort.utils.Time;
 
 /**
  * ClientRequestExecutor represents a persistent link between a client and
@@ -48,6 +50,8 @@ public class ClientRequestExecutor extends SelectorManagerWorker {
 
     private ClientRequest<?> clientRequest;
 
+    private long expiration;
+
     public ClientRequestExecutor(Selector selector,
                                  SocketChannel socketChannel,
                                  int socketBufferSize) {
@@ -59,15 +63,49 @@ public class ClientRequestExecutor extends SelectorManagerWorker {
     }
 
     public boolean isValid() {
+        if(isClosed())
+            return false;
+
         Socket s = socketChannel.socket();
         return !s.isClosed() && s.isBound() && s.isConnected();
     }
 
+    public synchronized boolean checkTimeout(SelectionKey selectionKey) {
+        if(expiration <= 0)
+            return true;
+
+        if(System.nanoTime() <= expiration)
+            return true;
+
+        if(logger.isEnabledFor(Level.WARN))
+            logger.warn("Client request associated with " + socketChannel.socket() + " timed out");
+
+        completeClientRequest();
+        selectionKey.interestOps(0);
+
+        return false;
+    }
+
     public synchronized void addClientRequest(ClientRequest<?> clientRequest) {
+        addClientRequest(clientRequest, -1);
+    }
+
+    public synchronized void addClientRequest(ClientRequest<?> clientRequest, long timeoutMs) {
         if(logger.isTraceEnabled())
             logger.trace("Associating client with " + socketChannel.socket());
 
         this.clientRequest = clientRequest;
+
+        if(timeoutMs == -1) {
+            this.expiration = -1;
+        } else {
+            timeoutMs -= SelectorManager.SELECTOR_POLL_MS;
+            this.expiration = System.nanoTime() + (Time.NS_PER_MS * timeoutMs);
+
+            if(this.expiration < System.nanoTime())
+                throw new IllegalArgumentException("timeout " + timeoutMs + " not valid");
+        }
+
         outputStream.getBuffer().clear();
 
         boolean wasSuccessful = clientRequest.formatRequest(new DataOutputStream(outputStream));
@@ -111,12 +149,22 @@ public class ClientRequestExecutor extends SelectorManagerWorker {
 
     @Override
     public void close() {
-        super.close();
+        // Due to certain code paths, close may be called in a recursive
+        // fashion. Rather than trying to handle all of the cases, simply keep
+        // track of whether we've been called before and only perform the logic
+        // once.
+        if(!isClosed.compareAndSet(false, true))
+            return;
+
         completeClientRequest();
+        closeInternal();
     }
 
     @Override
     protected void read(SelectionKey selectionKey) throws IOException {
+        if(!checkTimeout(selectionKey))
+            return;
+
         int count = 0;
 
         if((count = socketChannel.read(inputStream.getBuffer())) == -1)
@@ -163,6 +211,9 @@ public class ClientRequestExecutor extends SelectorManagerWorker {
 
     @Override
     protected void write(SelectionKey selectionKey) throws IOException {
+        if(!checkTimeout(selectionKey))
+            return;
+
         if(outputStream.getBuffer().hasRemaining()) {
             // If we have data, write what we can now...
             int count = socketChannel.write(outputStream.getBuffer());
@@ -194,6 +245,15 @@ public class ClientRequestExecutor extends SelectorManagerWorker {
         selectionKey.interestOps(SelectionKey.OP_READ);
     }
 
+    /**
+     * Null out our client request *before* calling complete because of the case
+     * where complete will cause a ClientRequestExecutor check-in (in
+     * SocketStore.NonblockingStoreCallbackClientRequest) and we'll end up
+     * recursing back here again when close is called in which case we'll try to
+     * check in the instance again which causes problems for the pool
+     * maintenance.
+     */
+
     private synchronized void completeClientRequest() {
         if(clientRequest == null) {
             if(logger.isEnabledFor(Level.WARN))
@@ -202,10 +262,12 @@ public class ClientRequestExecutor extends SelectorManagerWorker {
             return;
         }
 
-        clientRequest.complete();
-
-        // Don't forget to null out our client request...
+        // Sorry about this - please see the method comments...
+        ClientRequest<?> local = clientRequest;
         clientRequest = null;
+        expiration = 0;
+
+        local.complete();
 
         if(logger.isTraceEnabled())
             logger.trace("Marked client associated with " + socketChannel.socket() + " as complete");
