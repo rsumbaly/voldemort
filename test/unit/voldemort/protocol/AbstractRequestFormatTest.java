@@ -7,6 +7,7 @@ import java.io.DataOutputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import junit.framework.TestCase;
 import voldemort.ServerTestUtils;
@@ -15,31 +16,45 @@ import voldemort.VoldemortException;
 import voldemort.client.protocol.RequestFormat;
 import voldemort.client.protocol.RequestFormatFactory;
 import voldemort.client.protocol.RequestFormatType;
+import voldemort.secondary.RangeQuery;
+import voldemort.secondary.SecondaryIndexTestUtils;
+import voldemort.secondary.SecondaryIndexTestUtils.ByteArrayStoreProvider;
 import voldemort.server.RequestRoutingType;
 import voldemort.server.StoreRepository;
 import voldemort.server.protocol.RequestHandler;
+import voldemort.store.DelegatingStore;
+import voldemort.store.StorageEngine;
+import voldemort.store.Store;
 import voldemort.store.memory.InMemoryStorageEngine;
+import voldemort.store.memory.InMemoryStorageEngineSI;
 import voldemort.utils.ByteArray;
 import voldemort.versioning.ObsoleteVersionException;
 import voldemort.versioning.VectorClock;
 import voldemort.versioning.Versioned;
 
-public abstract class AbstractRequestFormatTest extends TestCase {
+public abstract class AbstractRequestFormatTest extends TestCase implements ByteArrayStoreProvider {
 
+    private final RequestFormatType type;
     private final String storeName;
-    private final RequestFormat clientWireFormat;
-    private final RequestHandler serverWireFormat;
-    private final InMemoryStorageEngine<ByteArray, byte[], byte[]> store;
+    private RequestFormat clientWireFormat;
+    private RequestHandler serverWireFormat;
+    private StorageEngine<ByteArray, byte[], byte[]> store;
 
     public AbstractRequestFormatTest(RequestFormatType type) {
+        this.type = type;
         this.storeName = "test";
-        this.store = new InMemoryStorageEngine<ByteArray, byte[], byte[]>(storeName);
+        setUpStore(new InMemoryStorageEngine<ByteArray, byte[], byte[]>(storeName));
+    }
+
+    private void setUpStore(StorageEngine<ByteArray, byte[], byte[]> store) {
+        this.store = store;
         StoreRepository repository = new StoreRepository();
         repository.addLocalStore(store);
         repository.addRoutedStore(store);
         this.clientWireFormat = new RequestFormatFactory().getRequestFormat(type);
         this.serverWireFormat = ServerTestUtils.getSocketRequestHandlerFactory(repository)
                                                .getRequestHandler(type);
+
     }
 
     public void testNullKeys() throws Exception {
@@ -112,7 +127,7 @@ public abstract class AbstractRequestFormatTest extends TestCase {
                 assertEquals(0, values.size());
             }
         } finally {
-            this.store.deleteAll();
+            this.store.truncate();
         }
     }
 
@@ -136,9 +151,11 @@ public abstract class AbstractRequestFormatTest extends TestCase {
                           new boolean[] { true });
 
         testGetAllRequest(new ByteArray[] { TestUtils.toByteArray("hello"),
-                TestUtils.toByteArray("holly") }, new byte[][] { "world".getBytes(),
-                "cow".getBytes() }, null, new VectorClock[] { TestUtils.getClock(1, 1),
-                TestUtils.getClock(1, 2) }, new boolean[] { true, false });
+                                  TestUtils.toByteArray("holly") },
+                          new byte[][] { "world".getBytes(), "cow".getBytes() },
+                          null,
+                          new VectorClock[] { TestUtils.getClock(1, 1), TestUtils.getClock(1, 2) },
+                          new boolean[] { true, false });
     }
 
     public void testGetAllRequest(ByteArray[] keys,
@@ -174,7 +191,7 @@ public abstract class AbstractRequestFormatTest extends TestCase {
                 }
             }
         } finally {
-            this.store.deleteAll();
+            this.store.truncate();
         }
     }
 
@@ -221,7 +238,7 @@ public abstract class AbstractRequestFormatTest extends TestCase {
         } catch(Exception e) {
             assertEquals("Unexpected exception " + e.getClass().getName(), e.getClass(), exception);
         } finally {
-            this.store.deleteAll();
+            this.store.truncate();
         }
     }
 
@@ -259,8 +276,39 @@ public abstract class AbstractRequestFormatTest extends TestCase {
             boolean wasDeleted = this.clientWireFormat.readDeleteResponse(inputStream(delResponse));
             assertEquals(isDeleted, wasDeleted);
         } finally {
-            this.store.deleteAll();
+            this.store.truncate();
         }
+    }
+
+    public Store<ByteArray, byte[], byte[]> getStore() {
+        // We could implement other API methods as well, and leverage
+        // AbstractByteArrayStoreTest but I didn't want to
+        // change existing test implementation
+        return new DelegatingStore<ByteArray, byte[], byte[]>(store) {
+
+            @Override
+            public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+                try {
+                    ByteArrayOutputStream getAllKeysRequest = new ByteArrayOutputStream();
+                    clientWireFormat.writeGetKeysBySecondary(new DataOutputStream(getAllKeysRequest),
+                                                             storeName,
+                                                             query,
+                                                             RequestRoutingType.NORMAL);
+                    ByteArrayOutputStream getAllKeysResponse = new ByteArrayOutputStream();
+                    serverWireFormat.handleRequest(inputStream(getAllKeysRequest),
+                                                   new DataOutputStream(getAllKeysResponse));
+                    return clientWireFormat.readGetKeysBySecondaryResponse(inputStream(getAllKeysResponse));
+                } catch(Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        };
+    }
+
+    public void testGetAllKeysRequests() throws Exception {
+        SecondaryIndexTestUtils secIdxUtils = new SecondaryIndexTestUtils(this);
+        setUpStore(new InMemoryStorageEngineSI(storeName, secIdxUtils.getSecIdxProcessor()));
+        secIdxUtils.testSecondaryIndex();
     }
 
     public DataInputStream inputStream(ByteArrayOutputStream output) {

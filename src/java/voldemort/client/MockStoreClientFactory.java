@@ -21,6 +21,7 @@ import java.util.List;
 
 import voldemort.cluster.failuredetector.FailureDetector;
 import voldemort.cluster.failuredetector.NoopFailureDetector;
+import voldemort.secondary.SecondaryIndexProcessor;
 import voldemort.serialization.DefaultSerializerFactory;
 import voldemort.serialization.Serializer;
 import voldemort.store.StorageEngine;
@@ -28,6 +29,7 @@ import voldemort.store.Store;
 import voldemort.store.StoreDefinition;
 import voldemort.store.StoreUtils;
 import voldemort.store.memory.InMemoryStorageEngine;
+import voldemort.store.memory.InMemoryStorageEngineSI;
 import voldemort.store.serialized.SerializingStore;
 import voldemort.store.versioned.InconsistencyResolvingStore;
 import voldemort.store.versioned.VersionIncrementingStore;
@@ -56,6 +58,7 @@ public class MockStoreClientFactory implements StoreClientFactory {
     private final Serializer<?> valueSerializer;
     private final Serializer<?> viewValueSerializer;
     private final Serializer<?> transformsSerializer;
+    private final SecondaryIndexProcessor secIdxProcessor;
     private final Time time;
     private final FailureDetector failureDetector;
     private static final StoreDefinitionsMapper storeMapper = new StoreDefinitionsMapper();
@@ -87,11 +90,28 @@ public class MockStoreClientFactory implements StoreClientFactory {
                                   Serializer<?> transformsSerializer,
                                   int nodeId,
                                   Time time) {
+        this(keySerializer,
+             valueSerializer,
+             viewValueSerializer,
+             transformsSerializer,
+             null,
+             nodeId,
+             time);
+    }
+
+    public MockStoreClientFactory(Serializer<?> keySerializer,
+                                  Serializer<?> valueSerializer,
+                                  Serializer<?> viewValueSerializer,
+                                  Serializer<?> transformsSerializer,
+                                  SecondaryIndexProcessor secIdxProcessor,
+                                  int nodeId,
+                                  Time time) {
         this.nodeId = nodeId;
         this.keySerializer = keySerializer;
         this.valueSerializer = valueSerializer;
         this.viewValueSerializer = viewValueSerializer;
         this.transformsSerializer = transformsSerializer;
+        this.secIdxProcessor = secIdxProcessor;
         this.time = time;
         failureDetector = new NoopFailureDetector();
     }
@@ -116,14 +136,16 @@ public class MockStoreClientFactory implements StoreClientFactory {
         if(resolver != null)
             secondaryResolver = resolver;
 
-        Store store = new VersionIncrementingStore(new InMemoryStorageEngine(storeName),
+        Store store = new VersionIncrementingStore(new InMemoryStorageEngineSI(storeName,
+                                                                               secIdxProcessor),
                                                    nodeId,
                                                    time);
         if(isSerialized())
             store = new SerializingStore(store,
                                          keySerializer,
                                          valueSerializer,
-                                         transformsSerializer);
+                                         transformsSerializer,
+                                         secIdxProcessor);
 
         Store<K1, V1, T1> consistentStore = new InconsistencyResolvingStore<K1, V1, T1>(store,
                                                                                         new ChainedResolver<Versioned<V1>>(new VectorClockInconsistencyResolver(),

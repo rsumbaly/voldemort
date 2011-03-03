@@ -27,4 +27,9 @@ public class ProtocolBuffersSocketStoreTest extends AbstractSocketStoreTest {
         return Arrays.asList(new Object[][] { { true }, { false } });
     }
 
+    @Override
+    protected boolean isSecondaryIndexEnabled() {
+        return false;
+    }
+
 }

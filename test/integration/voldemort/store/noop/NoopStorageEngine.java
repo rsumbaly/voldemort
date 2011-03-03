@@ -20,8 +20,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import voldemort.VoldemortException;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.NoSuchCapabilityException;
 import voldemort.store.StorageEngine;
 import voldemort.store.StoreCapabilityType;
@@ -126,4 +128,9 @@ public class NoopStorageEngine implements StorageEngine<ByteArray, byte[], byte[
             return value == null ? 0 : 1;
         }
     }
+
+    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+        throw new UnsupportedOperationException("No secondary index support.");
+    }
+
 }

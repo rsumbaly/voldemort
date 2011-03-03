@@ -2,11 +2,13 @@ package voldemort.store.pausable;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
 import voldemort.annotations.jmx.JmxOperation;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.StorageEngine;
 import voldemort.store.StoreCapabilityType;
 import voldemort.store.memory.InMemoryStorageEngine;
@@ -86,12 +88,17 @@ public class PausableStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
 
     public void truncate() {
         blockIfNecessary();
-        inner.deleteAll();
+        inner.truncate();
     }
 
     public List<Version> getVersions(K key) {
         blockIfNecessary();
         return inner.getVersions(key);
+    }
+
+    public Set<K> getKeysBySecondary(RangeQuery query) {
+        blockIfNecessary();
+        return inner.getKeysBySecondary(query);
     }
 
     public Object getCapability(StoreCapabilityType capability) {

@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -29,6 +30,7 @@ import org.apache.log4j.Logger;
 import voldemort.VoldemortException;
 import voldemort.client.protocol.RequestFormat;
 import voldemort.client.protocol.RequestFormatFactory;
+import voldemort.secondary.RangeQuery;
 import voldemort.server.RequestRoutingType;
 import voldemort.store.NoSuchCapabilityException;
 import voldemort.store.Store;
@@ -44,6 +46,7 @@ import voldemort.store.socket.clientrequest.ClientRequestExecutorPool;
 import voldemort.store.socket.clientrequest.DeleteClientRequest;
 import voldemort.store.socket.clientrequest.GetAllClientRequest;
 import voldemort.store.socket.clientrequest.GetClientRequest;
+import voldemort.store.socket.clientrequest.GetKeysBySecondaryRequest;
 import voldemort.store.socket.clientrequest.GetVersionsClientRequest;
 import voldemort.store.socket.clientrequest.PutClientRequest;
 import voldemort.utils.ByteArray;
@@ -128,6 +131,18 @@ public class SocketStore implements Store<ByteArray, byte[], byte[]>, Nonblockin
         requestAsync(clientRequest, callback, timeoutMs, "get all");
     }
 
+    public void submitGetAllKeysRequest(RangeQuery query,
+                                        Map<ByteArray, byte[]> transforms,
+                                        NonblockingStoreCallback callback,
+                                        long timeoutMs) {
+        // StoreUtils.assertValidKeys(keys);
+        GetKeysBySecondaryRequest clientRequest = new GetKeysBySecondaryRequest(storeName,
+                                                                                requestFormat,
+                                                                                requestRoutingType,
+                                                                                query);
+        requestAsync(clientRequest, callback, timeoutMs, "get all keys");
+    }
+
     public void submitGetVersionsRequest(ByteArray key,
                                          NonblockingStoreCallback callback,
                                          long timeoutMs) {
@@ -186,6 +201,14 @@ public class SocketStore implements Store<ByteArray, byte[], byte[]>, Nonblockin
         return request(clientRequest, "getAll");
     }
 
+    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+        GetKeysBySecondaryRequest clientRequest = new GetKeysBySecondaryRequest(storeName,
+                                                                                requestFormat,
+                                                                                requestRoutingType,
+                                                                                query);
+        return request(clientRequest, "getKeysBySecondary");
+    }
+
     public List<Version> getVersions(ByteArray key) {
         StoreUtils.assertValidKey(key);
         GetVersionsClientRequest clientRequest = new GetVersionsClientRequest(storeName,
@@ -219,7 +242,7 @@ public class SocketStore implements Store<ByteArray, byte[], byte[]>, Nonblockin
     }
 
     public void close() throws VoldemortException {
-    // don't close the socket pool, it is shared
+        // don't close the socket pool, it is shared
     }
 
     /**

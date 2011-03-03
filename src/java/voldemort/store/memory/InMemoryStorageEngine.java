@@ -17,26 +17,30 @@
 package voldemort.store.memory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import voldemort.VoldemortException;
 import voldemort.annotations.concurrency.NotThreadsafe;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.NoSuchCapabilityException;
 import voldemort.store.StorageEngine;
 import voldemort.store.StoreCapabilityType;
 import voldemort.store.StoreUtils;
 import voldemort.utils.ClosableIterator;
 import voldemort.utils.Pair;
-import voldemort.utils.Utils;
 import voldemort.versioning.ObsoleteVersionException;
 import voldemort.versioning.Occured;
 import voldemort.versioning.Version;
 import voldemort.versioning.Versioned;
+
+import com.google.common.collect.Lists;
 
 /**
  * A simple non-persistent, in-memory store. Useful for unit testing.
@@ -49,20 +53,15 @@ public class InMemoryStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
     private final String name;
 
     public InMemoryStorageEngine(String name) {
-        this.name = Utils.notNull(name);
-        this.map = new ConcurrentHashMap<K, List<Versioned<V>>>();
+        this(name, new ConcurrentHashMap<K, List<Versioned<V>>>());
     }
 
     public InMemoryStorageEngine(String name, ConcurrentMap<K, List<Versioned<V>>> map) {
-        this.name = Utils.notNull(name);
-        this.map = Utils.notNull(map);
+        this.name = name;
+        this.map = map;
     }
 
     public void close() {}
-
-    public void deleteAll() {
-        this.map.clear();
-    }
 
     public boolean delete(K key) {
         return delete(key, null);
@@ -79,13 +78,17 @@ public class InMemoryStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
             return false;
         }
         synchronized(values) {
-            boolean deletedSomething = false;
+            List<Versioned<V>> deletedVals = Lists.newArrayList();
+            List<Versioned<V>> remainingVals = Lists.newArrayList();
+
             Iterator<Versioned<V>> iterator = values.iterator();
             while(iterator.hasNext()) {
                 Versioned<V> item = iterator.next();
                 if(item.getVersion().compare(version) == Occured.BEFORE) {
                     iterator.remove();
-                    deletedSomething = true;
+                    deletedVals.add(item);
+                } else {
+                    remainingVals.add(item);
                 }
             }
             if(values.size() == 0) {
@@ -95,7 +98,9 @@ public class InMemoryStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
                     return false;
             }
 
-            return deletedSomething;
+            deletePostActions(key, deletedVals, remainingVals);
+
+            return !deletedVals.isEmpty();
         }
     }
 
@@ -132,6 +137,12 @@ public class InMemoryStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
                 items = new ArrayList<Versioned<V>>();
                 items.add(new Versioned<V>(value.getValue(), version));
                 success = map.putIfAbsent(key, items) == null;
+                if(success)
+                    putPostActions(key,
+                                   Collections.<Versioned<V>> emptyList(),
+                                   Collections.<Versioned<V>> emptyList(),
+                                   value,
+                                   transforms);
             } else {
                 synchronized(items) {
                     // if this check fails, items has been removed from the map
@@ -141,7 +152,8 @@ public class InMemoryStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
 
                     // Check for existing versions - remember which items to
                     // remove in case of success
-                    List<Versioned<V>> itemsToRemove = new ArrayList<Versioned<V>>(items.size());
+                    List<Versioned<V>> itemsToRemove = Lists.newArrayListWithCapacity(items.size());
+                    List<Versioned<V>> itemsRemaining = Lists.newArrayList();
                     for(Versioned<V> versioned: items) {
                         Occured occured = value.getVersion().compare(versioned.getVersion());
                         if(occured == Occured.BEFORE) {
@@ -149,15 +161,28 @@ public class InMemoryStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
                                                                + "': " + value.getVersion());
                         } else if(occured == Occured.AFTER) {
                             itemsToRemove.add(versioned);
+                        } else {
+                            itemsRemaining.add(versioned);
                         }
                     }
                     items.removeAll(itemsToRemove);
                     items.add(value);
+                    putPostActions(key, itemsToRemove, itemsRemaining, value, transforms);
                 }
                 success = true;
             }
         }
     }
+
+    protected void putPostActions(K key,
+                                  List<Versioned<V>> deletedVals,
+                                  List<Versioned<V>> remainingVals,
+                                  Versioned<V> value,
+                                  T transforms) {}
+
+    protected void deletePostActions(K key,
+                                     List<Versioned<V>> deletedVals,
+                                     List<Versioned<V>> remainingVals) {}
 
     public Object getCapability(StoreCapabilityType capability) {
         throw new NoSuchCapabilityException(capability, getName());
@@ -258,8 +283,13 @@ public class InMemoryStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
         }
 
         public void close() {
-        // nothing to do here
+            // nothing to do here
         }
 
     }
+
+    public Set<K> getKeysBySecondary(RangeQuery query) {
+        throw new UnsupportedOperationException("No secondary index support.");
+    }
+
 }

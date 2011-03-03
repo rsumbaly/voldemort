@@ -34,4 +34,9 @@ public class ProtocolBuffersRequestFormatTest extends AbstractRequestFormatTest 
         assertEquals(1, getResponse.size());
     }
 
+    @Override
+    public void testGetAllKeysRequests() throws Exception {
+        // TODO Not supported yet
+    }
+
 }

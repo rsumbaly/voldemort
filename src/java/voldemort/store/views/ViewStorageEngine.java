@@ -4,9 +4,11 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import voldemort.VoldemortException;
 import voldemort.annotations.Experimental;
+import voldemort.secondary.RangeQuery;
 import voldemort.serialization.Serializer;
 import voldemort.store.StorageEngine;
 import voldemort.store.Store;
@@ -212,9 +214,14 @@ public class ViewStorageEngine implements StorageEngine<ByteArray, byte[], byte[
             Pair<ByteArray, Versioned<byte[]>> p = inner.next();
             Versioned<byte[]> newVal = Versioned.value(valueToViewSchema(p.getFirst(),
                                                                          p.getSecond().getValue(),
-                                                                         null), p.getSecond()
-                                                                                 .getVersion());
+                                                                         null),
+                                                       p.getSecond().getVersion());
             return Pair.create(p.getFirst(), newVal);
         }
     }
+
+    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+        throw new UnsupportedOperationException("No secondary index support.");
+    }
+
 }

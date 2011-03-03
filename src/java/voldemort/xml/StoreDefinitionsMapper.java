@@ -43,6 +43,7 @@ import org.xml.sax.SAXException;
 
 import voldemort.client.RoutingTier;
 import voldemort.routing.RoutingStrategyType;
+import voldemort.secondary.SecondaryIndexDefinition;
 import voldemort.serialization.Compression;
 import voldemort.serialization.SerializerDefinition;
 import voldemort.store.StoreDefinition;
@@ -90,6 +91,13 @@ public class StoreDefinitionsMapper {
     public final static String VIEW_TRANS_ELMT = "view-class";
     public final static String VIEW_SERIALIZER_FACTORY_ELMT = "view-serializer-factory";
     private final static String STORE_VERSION_ATTR = "version";
+
+    public final static String STORE_SEC_INDEX_ELMT = "secondary-index";
+    public final static String STORE_SEC_INDEX_NAME_ELMT = "name";
+    public final static String STORE_SEC_INDEX_EXTRACTOR_TYPE_ELMT = "extractor-type";
+    public final static String STORE_SEC_INDEX_EXTRACTOR_INFO_ELMT = "extractor-info";
+    public final static String STORE_SEC_INDEX_SERIALIZER_TYPE_ELMT = "serializer-type";
+    public final static String STORE_SEC_INDEX_SCHEMA_INFO_ELMT = "schema-info";
 
     private final Schema schema;
 
@@ -234,6 +242,8 @@ public class StoreDefinitionsMapper {
         Integer hintPrefListSize = (null != hintPrefListSizeStr) ? Integer.parseInt(hintPrefListSizeStr)
                                                                 : null;
 
+        List<SecondaryIndexDefinition> secondaryIndexDefinitions = readSecondaryIndexDefs(store);
+
         return new StoreDefinitionBuilder().setName(name)
                                            .setType(storeType)
                                            .setKeySerializer(keySerializer)
@@ -252,7 +262,29 @@ public class StoreDefinitionsMapper {
                                            .setZoneCountWrites(zoneCountWrites)
                                            .setHintedHandoffStrategy(hintedHandoffStrategy)
                                            .setHintPrefListSize(hintPrefListSize)
+                                           .setSecondaryIndexes(secondaryIndexDefinitions)
                                            .build();
+    }
+
+    private List<SecondaryIndexDefinition> readSecondaryIndexDefs(Element store) {
+        List<SecondaryIndexDefinition> result = new ArrayList<SecondaryIndexDefinition>();
+        for(Object secIdx: store.getChildren(STORE_SEC_INDEX_ELMT)) {
+            Element secIdxElmt = (Element) secIdx;
+            String name = secIdxElmt.getChild(STORE_SEC_INDEX_NAME_ELMT).getText();
+            String extractorType = secIdxElmt.getChild(STORE_SEC_INDEX_EXTRACTOR_TYPE_ELMT)
+                                             .getText();
+            String extractorInfo = secIdxElmt.getChild(STORE_SEC_INDEX_EXTRACTOR_INFO_ELMT)
+                                             .getText();
+            String serializerType = secIdxElmt.getChild(STORE_SEC_INDEX_SERIALIZER_TYPE_ELMT)
+                                              .getText();
+            String schemaInfo = secIdxElmt.getChild(STORE_SEC_INDEX_SCHEMA_INFO_ELMT).getText();
+            result.add(new SecondaryIndexDefinition(name,
+                                                    extractorType,
+                                                    extractorInfo,
+                                                    serializerType,
+                                                    schemaInfo));
+        }
+        return result;
     }
 
     private StoreDefinition readView(Element store, List<StoreDefinition> stores) {

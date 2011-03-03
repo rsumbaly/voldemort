@@ -52,6 +52,7 @@ import voldemort.cluster.failuredetector.BannagePeriodFailureDetector;
 import voldemort.cluster.failuredetector.FailureDetector;
 import voldemort.cluster.failuredetector.FailureDetectorConfig;
 import voldemort.routing.RoutingStrategyType;
+import voldemort.secondary.SecondaryIndexTestUtils;
 import voldemort.serialization.SerializerDefinition;
 import voldemort.store.AbstractByteArrayStoreTest;
 import voldemort.store.FailingReadsStore;
@@ -64,6 +65,7 @@ import voldemort.store.StoreDefinition;
 import voldemort.store.StoreDefinitionBuilder;
 import voldemort.store.UnreachableStoreException;
 import voldemort.store.memory.InMemoryStorageEngine;
+import voldemort.store.memory.InMemoryStorageEngineSI;
 import voldemort.store.slop.strategy.HintedHandoffStrategyType;
 import voldemort.store.stats.StatTrackingStore;
 import voldemort.store.stats.Tracked;
@@ -92,18 +94,26 @@ import com.google.common.collect.Sets;
 public class RoutedStoreTest extends AbstractByteArrayStoreTest {
 
     private Cluster cluster;
-    private final ByteArray aKey = TestUtils.toByteArray("jay");
-    private final byte[] aValue = "kreps".getBytes();
-    private final byte[] aTransform = "transform".getBytes();
+    private final ByteArray aKey;
+    private final byte[] aValue;
+    private final byte[] anotherValue;
+    private final byte[] aTransform = null;
     private final Class<FailureDetector> failureDetectorClass;
     private final boolean isPipelineRoutedStoreEnabled;
     private FailureDetector failureDetector;
     private ExecutorService routedStoreThreadPool;
+    private SecondaryIndexTestUtils secIdxUtils;
+    private Store<ByteArray, byte[], byte[]> store;
 
     public RoutedStoreTest(Class<FailureDetector> failureDetectorClass,
                            boolean isPipelineRoutedStoreEnabled) {
         this.failureDetectorClass = failureDetectorClass;
         this.isPipelineRoutedStoreEnabled = isPipelineRoutedStoreEnabled;
+        aKey = getKey();
+        List<byte[]> values = getValues(2);
+        aValue = values.get(0);
+        anotherValue = values.get(1);
+        secIdxUtils = new SecondaryIndexTestUtils(this);
     }
 
     @Override
@@ -111,6 +121,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
     public void setUp() throws Exception {
         super.setUp();
         cluster = getNineNodeCluster();
+        store = createStore();
     }
 
     @Override
@@ -131,14 +142,23 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                 { BannagePeriodFailureDetector.class, false } });
     }
 
+    public Store<ByteArray, byte[], byte[]> createStore() {
+        try {
+            RoutedStore store = getStore(cluster,
+                                         cluster.getNumberOfNodes(),
+                                         cluster.getNumberOfNodes(),
+                                         4,
+                                         0);
+            return new InconsistencyResolvingStore<ByteArray, byte[], byte[]>(store,
+                                                                              new VectorClockInconsistencyResolver<byte[]>());
+        } catch(Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Override
-    public Store<ByteArray, byte[], byte[]> getStore() throws Exception {
-        return new InconsistencyResolvingStore<ByteArray, byte[], byte[]>(getStore(cluster,
-                                                                                   cluster.getNumberOfNodes(),
-                                                                                   cluster.getNumberOfNodes(),
-                                                                                   4,
-                                                                                   0),
-                                                                          new VectorClockInconsistencyResolver<byte[]>());
+    public Store<ByteArray, byte[], byte[]> getStore() {
+        return store;
     }
 
     private RoutedStore getStore(Cluster cluster, int reads, int writes, int threads, int failing)
@@ -176,9 +196,10 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                 subStore = new FailingStore<ByteArray, byte[], byte[]>("test", e);
             else if(count < failing + sleepy)
                 subStore = new SleepyStore<ByteArray, byte[], byte[]>(Long.MAX_VALUE,
-                                                                      new InMemoryStorageEngine<ByteArray, byte[], byte[]>("test"));
+                                                                      new InMemoryStorageEngineSI("test",
+                                                                                                  secIdxUtils.getSecIdxProcessor()));
             else
-                subStore = new InMemoryStorageEngine<ByteArray, byte[], byte[]>("test");
+                subStore = new InMemoryStorageEngineSI("test", secIdxUtils.getSecIdxProcessor());
 
             subStores.put(n.getId(), subStore);
 
@@ -298,6 +319,8 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
         assertTrue(routedStore.delete(aKey, versioned.getVersion()));
         assertNEqual(routedStore, 0, aKey, versioned);
         assertTrue(!routedStore.delete(aKey, versioned.getVersion()));
+
+        secIdxUtils.testSecondaryIndex();
     }
 
     @Test
@@ -313,6 +336,11 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
     @Test
     public void testBasicOperationsMultiThreadedWithFailures() throws Exception {
         testBasicOperations(cluster.getNumberOfNodes() - 2, cluster.getNumberOfNodes() - 2, 2, 4);
+    }
+
+    @Override
+    protected boolean isSecondaryIndexEnabled() {
+        return true;
     }
 
     private void testBasicOperationFailure(int reads, int writes, int failures, int threads)
@@ -370,7 +398,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
 
     @Test
     public void testObsoleteMasterFails() {
-    // write me
+        // write me
     }
 
     @Test
@@ -749,9 +777,12 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                                                                                             new VectorClockInconsistencyResolver<byte[]>());
 
         Map<ByteArray, byte[]> expectedValues = Maps.newHashMap();
-        for(byte i = 1; i < 11; ++i) {
-            ByteArray key = new ByteArray(new byte[] { i });
-            byte[] value = new byte[] { (byte) (i + 50) };
+
+        List<byte[]> values = getValues(10);
+        List<ByteArray> keys = getKeys(10);
+        for(byte i = 0; i < 10; ++i) {
+            ByteArray key = keys.get(i);
+            byte[] value = values.get(i);
             store.put(key, Versioned.value(value), null);
             expectedValues.put(key, value);
         }
@@ -882,8 +913,6 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
         Store<ByteArray, byte[], byte[]> store = new InconsistencyResolvingStore<ByteArray, byte[], byte[]>(routedStore,
                                                                                                             new VectorClockInconsistencyResolver<byte[]>());
         store.put(aKey, new Versioned<byte[]>(aValue), null);
-
-        byte[] anotherValue = "john".getBytes();
 
         // Disable the last node and enable node 1 to prevent the last node from
         // getting the new version

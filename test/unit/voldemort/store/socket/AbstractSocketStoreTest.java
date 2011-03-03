@@ -20,7 +20,6 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -32,7 +31,6 @@ import org.junit.Test;
 import org.junit.runners.Parameterized.Parameters;
 
 import voldemort.ServerTestUtils;
-import voldemort.TestUtils;
 import voldemort.VoldemortTestConstants;
 import voldemort.client.protocol.RequestFormatType;
 import voldemort.server.AbstractSocketService;
@@ -78,7 +76,8 @@ public abstract class AbstractSocketStoreTest extends AbstractByteArrayStoreTest
                                                          VoldemortTestConstants.getOneNodeClusterXml(),
                                                          VoldemortTestConstants.getSimpleStoreDefinitionsXml(),
                                                          "test",
-                                                         socketPort);
+                                                         socketPort,
+                                                         isSecondaryIndexEnabled());
         socketService.start();
         socketStore = ServerTestUtils.getSocketStore(socketStoreFactory,
                                                      "test",
@@ -103,12 +102,11 @@ public abstract class AbstractSocketStoreTest extends AbstractByteArrayStoreTest
     @Test
     public void testVeryLargeValues() throws Exception {
         final Store<ByteArray, byte[], byte[]> store = getStore();
-        byte[] biggie = new byte[1 * 1024 * 1024];
-        ByteArray key = new ByteArray(biggie);
-        Random rand = new Random();
+
+        int size = 1024 * 1024;
+        ByteArray key = getKey(size);
         for(int i = 0; i < 10; i++) {
-            rand.nextBytes(biggie);
-            Versioned<byte[]> versioned = new Versioned<byte[]>(biggie);
+            Versioned<byte[]> versioned = Versioned.value(getValue(size));
             store.put(key, versioned, null);
             assertNotNull(store.get(key, null));
             assertTrue(store.delete(key, versioned.getVersion()));
@@ -125,10 +123,7 @@ public abstract class AbstractSocketStoreTest extends AbstractByteArrayStoreTest
             exec.execute(new Runnable() {
 
                 public void run() {
-                    store.put(TestUtils.toByteArray(TestUtils.randomString("abcdefghijklmnopqrs",
-                                                                           10)),
-                              new Versioned<byte[]>(TestUtils.randomBytes(8)),
-                              null);
+                    store.put(getKey(10), Versioned.value(getValue(10)), null);
                     latch.countDown();
                 }
             });
@@ -151,6 +146,11 @@ public abstract class AbstractSocketStoreTest extends AbstractByteArrayStoreTest
             s.close();
             logger.info("Client closed" + i);
         }
+    }
+
+    @Override
+    protected boolean isSecondaryIndexEnabled() {
+        return true;
     }
 
 }

@@ -26,6 +26,7 @@ import voldemort.client.protocol.RequestFormatType;
 import voldemort.cluster.failuredetector.FailureDetectorConfig;
 import voldemort.server.scheduler.slop.StreamingSlopPusherJob;
 import voldemort.store.bdb.BdbStorageConfiguration;
+import voldemort.store.bdb.BdbStorageConfigurationSI;
 import voldemort.store.memory.CacheStorageConfiguration;
 import voldemort.store.memory.InMemoryStorageConfiguration;
 import voldemort.store.mysql.MysqlStorageConfiguration;
@@ -245,7 +246,7 @@ public class VoldemortConfig implements Serializable {
         this.enableSocketServer = props.getBoolean("socket.enable", true);
         this.enableAdminServer = props.getBoolean("admin.enable", true);
         this.enableJmx = props.getBoolean("jmx.enable", true);
-       this.enablePipelineRoutedStore = props.getBoolean("enable.pipeline.routed.store", true);
+        this.enablePipelineRoutedStore = props.getBoolean("enable.pipeline.routed.store", true);
         this.enableVerboseLogging = props.getBoolean("enable.verbose.logging", true);
         this.enableStatTracking = props.getBoolean("enable.stat.tracking", true);
         this.enableServerRouting = props.getBoolean("enable.server.routing", true);
@@ -270,7 +271,8 @@ public class VoldemortConfig implements Serializable {
         this.numCleanupPermits = props.getInt("num.cleanup.permits", 1);
 
         this.storageConfigurations = props.getList("storage.configs",
-                                                   ImmutableList.of(BdbStorageConfiguration.class.getName(),
+                                                   ImmutableList.of(BdbStorageConfigurationSI.class.getName(),
+                                                                    BdbStorageConfiguration.class.getName(),
                                                                     MysqlStorageConfiguration.class.getName(),
                                                                     InMemoryStorageConfiguration.class.getName(),
                                                                     CacheStorageConfiguration.class.getName(),

@@ -16,10 +16,8 @@
 
 package voldemort.store.serialized;
 
-import java.util.List;
-
 import voldemort.serialization.StringSerializer;
-import voldemort.store.AbstractStoreTest;
+import voldemort.store.AbstractStringStoreTest;
 import voldemort.store.Store;
 import voldemort.store.memory.InMemoryStorageEngine;
 import voldemort.utils.ByteArray;
@@ -27,12 +25,7 @@ import voldemort.utils.ByteArray;
 /**
  * 
  */
-public class SerializingStoreTest extends AbstractStoreTest<String, String, String> {
-
-    @Override
-    public List<String> getKeys(int numKeys) {
-        return getStrings(numKeys, 10);
-    }
+public class SerializingStoreTest extends AbstractStringStoreTest {
 
     @Override
     public Store<String, String, String> getStore() {
@@ -40,11 +33,6 @@ public class SerializingStoreTest extends AbstractStoreTest<String, String, Stri
                                      new StringSerializer(),
                                      new StringSerializer(),
                                      new StringSerializer());
-    }
-
-    @Override
-    public List<String> getValues(int numValues) {
-        return getStrings(numValues, 12);
     }
 
 }

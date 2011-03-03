@@ -21,12 +21,14 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.io.FileUtils;
 import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.StorageEngine;
 import voldemort.store.StoreCapabilityType;
 import voldemort.store.StoreUtils;
@@ -239,4 +241,9 @@ public class ConfigurationStorageEngine implements StorageEngine<String, String,
     public void truncate() {
         throw new VoldemortException("Truncate not supported in ConfigurationStorageEngine");
     }
+
+    public Set<String> getKeysBySecondary(RangeQuery query) {
+        throw new UnsupportedOperationException("No secondary index support.");
+    }
+
 }

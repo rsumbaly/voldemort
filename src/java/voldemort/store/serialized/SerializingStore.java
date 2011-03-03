@@ -19,8 +19,11 @@ package voldemort.store.serialized;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import voldemort.VoldemortException;
+import voldemort.secondary.RangeQuery;
+import voldemort.secondary.SecondaryIndexProcessor;
 import voldemort.serialization.Serializer;
 import voldemort.store.Store;
 import voldemort.store.StoreCapabilityType;
@@ -30,6 +33,7 @@ import voldemort.utils.Utils;
 import voldemort.versioning.Version;
 import voldemort.versioning.Versioned;
 
+import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -49,14 +53,25 @@ public class SerializingStore<K, V, T> implements Store<K, V, T> {
     private final Serializer<V> valueSerializer;
     private final Serializer<T> transformsSerializer;
 
+    private final SecondaryIndexProcessor secIdxProcessor;
+
     public SerializingStore(Store<ByteArray, byte[], byte[]> store,
                             Serializer<K> keySerializer,
                             Serializer<V> valueSerializer,
                             Serializer<T> transformsSerializer) {
+        this(store, keySerializer, valueSerializer, transformsSerializer, null);
+    }
+
+    public SerializingStore(Store<ByteArray, byte[], byte[]> store,
+                            Serializer<K> keySerializer,
+                            Serializer<V> valueSerializer,
+                            Serializer<T> transformsSerializer,
+                            SecondaryIndexProcessor secIdxProcessor) {
         this.store = Utils.notNull(store);
         this.keySerializer = Utils.notNull(keySerializer);
         this.valueSerializer = Utils.notNull(valueSerializer);
         this.transformsSerializer = transformsSerializer;
+        this.secIdxProcessor = secIdxProcessor;
     }
 
     public static <K1, V1, T1> SerializingStore<K1, V1, T1> wrap(Store<ByteArray, byte[], byte[]> s,
@@ -64,6 +79,14 @@ public class SerializingStore<K, V, T> implements Store<K, V, T> {
                                                                  Serializer<V1> v,
                                                                  Serializer<T1> t) {
         return new SerializingStore<K1, V1, T1>(s, k, v, t);
+    }
+
+    public static <K1, V1, T1> SerializingStore<K1, V1, T1> wrap(Store<ByteArray, byte[], byte[]> s,
+                                                                 Serializer<K1> k,
+                                                                 Serializer<V1> v,
+                                                                 Serializer<T1> t,
+                                                                 SecondaryIndexProcessor secIdxProcessor) {
+        return new SerializingStore<K1, V1, T1>(s, k, v, t, secIdxProcessor);
     }
 
     public boolean delete(K key, Version version) throws VoldemortException {
@@ -144,6 +167,26 @@ public class SerializingStore<K, V, T> implements Store<K, V, T> {
         return store.getVersions(keyToBytes(key));
     }
 
+    public Set<K> getKeysBySecondary(RangeQuery query) {
+        return Maps.uniqueIndex(store.getKeysBySecondary(serializeQuery(query)),
+                                new Function<ByteArray, K>() {
+
+                                    public K apply(ByteArray key) {
+                                        return keySerializer.toObject(key.get());
+                                    }
+                                }).keySet();
+    }
+
+    /**
+     * Serialize all the query fields to ByteArray.
+     */
+    private RangeQuery serializeQuery(RangeQuery query) {
+        String field = query.getField();
+        return new RangeQuery(field,
+                              secIdxProcessor.serializeValue(field, query.getStart()),
+                              secIdxProcessor.serializeValue(field, query.getEnd()));
+    }
+
     public void close() {
         store.close();
     }
@@ -162,6 +205,8 @@ public class SerializingStore<K, V, T> implements Store<K, V, T> {
                 return this.keySerializer;
             case VALUE_SERIALIZER:
                 return this.valueSerializer;
+            case SECONDARY_INDEX_PROCESSOR:
+                return this.secIdxProcessor;
             default:
                 return store.getCapability(capability);
         }

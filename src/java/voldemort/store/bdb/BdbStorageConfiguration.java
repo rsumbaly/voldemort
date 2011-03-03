@@ -108,15 +108,22 @@ public class BdbStorageConfiguration implements StorageConfiguration {
                     preloadConfig.setLoadLNs(true);
                     db.preload(preloadConfig);
                 }
-                BdbStorageEngine engine = new BdbStorageEngine(storeName,
-                                                               environment,
-                                                               db,
-                                                               voldemortConfig.getBdbCursorPreload());
-                return engine;
+                return createStore(storeName,
+                                   environment,
+                                   db,
+                                   voldemortConfig.getBdbCursorPreload());
             } catch(DatabaseException d) {
                 throw new StorageInitializationException(d);
             }
         }
+    }
+
+    protected StorageEngine<ByteArray, byte[], byte[]> createStore(String storeName,
+                                                                   Environment environment,
+                                                                   Database db,
+                                                                   boolean cursorPreload) {
+        return new BdbStorageEngine(storeName, environment, db, cursorPreload);
+
     }
 
     private Environment getEnvironment(String storeName) throws DatabaseException {

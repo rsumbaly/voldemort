@@ -16,30 +16,18 @@
 
 package voldemort.store.logging;
 
-import java.util.List;
-
-import voldemort.store.AbstractStoreTest;
+import voldemort.store.AbstractStringStoreTest;
 import voldemort.store.Store;
 import voldemort.store.memory.InMemoryStorageEngine;
 
 /**
  * 
  */
-public class LoggingStoreTest extends AbstractStoreTest<String, String, String> {
-
-    @Override
-    public List<String> getKeys(int numKeys) {
-        return getStrings(numKeys, 8);
-    }
+public class LoggingStoreTest extends AbstractStringStoreTest {
 
     @Override
     public Store<String, String, String> getStore() {
         return new LoggingStore<String, String, String>(new InMemoryStorageEngine<String, String, String>("test-store"));
-    }
-
-    @Override
-    public List<String> getValues(int numValues) {
-        return getStrings(numValues, 8);
     }
 
 }

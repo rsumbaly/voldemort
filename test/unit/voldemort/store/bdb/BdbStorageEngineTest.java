@@ -19,8 +19,10 @@ package voldemort.store.bdb;
 import java.io.File;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -45,7 +47,7 @@ public class BdbStorageEngineTest extends AbstractStorageEngineTest {
 
     private Environment environment;
     private EnvironmentConfig envConfig;
-    private Database database;
+    protected Database database;
     private File tempDir;
     private BdbStorageEngine store;
     private DatabaseConfig databaseConfig;
@@ -64,7 +66,11 @@ public class BdbStorageEngineTest extends AbstractStorageEngineTest {
         databaseConfig.setTransactional(true);
         databaseConfig.setSortedDuplicates(true);
         this.database = environment.openDatabase(null, "test", databaseConfig);
-        this.store = new BdbStorageEngine("test", this.environment, this.database);
+        this.store = createBdbStorageEngine();
+    }
+
+    protected BdbStorageEngine createBdbStorageEngine() {
+        return new BdbStorageEngine("test", this.environment, this.database, false);
     }
 
     @Override
@@ -84,17 +90,18 @@ public class BdbStorageEngineTest extends AbstractStorageEngineTest {
     }
 
     public void testPersistence() throws Exception {
-        this.store.put(new ByteArray("abc".getBytes()),
-                       new Versioned<byte[]>("cdef".getBytes()),
-                       null);
+        ByteArray key = new ByteArray("abc".getBytes());
+        Versioned<byte[]> value = new Versioned<byte[]>(getValue());
+
+        this.store.put(key, value, null);
         this.store.close();
         this.environment.close();
         this.environment = new Environment(this.tempDir, envConfig);
         this.database = environment.openDatabase(null, "test", databaseConfig);
-        this.store = new BdbStorageEngine("test", this.environment, this.database);
-        List<Versioned<byte[]>> vals = store.get(new ByteArray("abc".getBytes()), null);
+        this.store = createBdbStorageEngine();
+        List<Versioned<byte[]>> vals = store.get(key, null);
         assertEquals(1, vals.size());
-        TestUtils.bytesEqual("cdef".getBytes(), vals.get(0).getValue());
+        TestUtils.bytesEqual(value.getValue(), vals.get(0).getValue());
     }
 
     public void testEquals() {
@@ -125,43 +132,78 @@ public class BdbStorageEngineTest extends AbstractStorageEngineTest {
     }
 
     public void testSimultaneousIterationAndModification() throws Exception {
-        // start a thread to do modifications
-        ExecutorService executor = Executors.newFixedThreadPool(2);
+        ExecutorService executor = Executors.newFixedThreadPool(3);
         final Random rand = new Random();
         final AtomicInteger count = new AtomicInteger(0);
         final AtomicBoolean keepRunning = new AtomicBoolean(true);
-        executor.execute(new Runnable() {
+        final int numElems = 300;
+        final List<ByteArray> keys = getKeys(numElems);
+        final List<byte[]> values = getValues(numElems);
 
-            public void run() {
-                while(keepRunning.get()) {
-                    byte[] bytes = Integer.toString(count.getAndIncrement()).getBytes();
-                    store.put(new ByteArray(bytes), Versioned.value(bytes), null);
+        // start a thread to put entries
+        Future<?> putFuture = executor.submit(new Callable<Void>() {
+
+            public Void call() throws Exception {
+                for(int i = 0; i < numElems; i++) {
+                    ByteArray key = keys.get(i);
+                    Versioned<byte[]> value = Versioned.value(values.get(i));
+                    store.put(key, value, null);
                     count.incrementAndGet();
                 }
-            }
-        });
-        executor.execute(new Runnable() {
-
-            public void run() {
-                while(keepRunning.get()) {
-                    byte[] bytes = Integer.toString(rand.nextInt(count.get())).getBytes();
-                    store.delete(new ByteArray(bytes), new VectorClock());
-                    count.incrementAndGet();
-                }
+                return null;
             }
         });
 
-        // wait a bit
-        while(count.get() < 300)
-            continue;
+        // start a thread to remove entries randomly
+        Future<Void> deleteFuture = executor.submit(new Callable<Void>() {
 
-        // now simultaneously do iteration
-        ClosableIterator<Pair<ByteArray, Versioned<byte[]>>> iter = this.store.entries();
-        while(iter.hasNext())
-            iter.next();
-        iter.close();
+            public Void call() throws Exception {
+                while(keepRunning.get()) {
+                    if(count.get() > 0) {
+                        int idx = rand.nextInt(count.get());
+                        ByteArray key = keys.get(idx);
+                        store.delete(key, new VectorClock());
+                    }
+                }
+                return null;
+            }
+        });
+
+        // start a thread to iterate over all the entries
+        Future<Void> iterFuture = executor.submit(new Callable<Void>() {
+
+            public Void call() throws Exception {
+                while(keepRunning.get()) {
+                    ClosableIterator<Pair<ByteArray, Versioned<byte[]>>> iter = store.entries();
+                    while(iter.hasNext())
+                        iter.next();
+                    iter.close();
+                }
+                return null;
+            }
+        });
+
+        putFuture.get();
         keepRunning.set(false);
+
+        // check no exceptions thrown
+        deleteFuture.get();
+        iterFuture.get();
+
         executor.shutdown();
         assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
     }
+
+    @Override
+    public void testTruncate() throws Exception {
+        super.testTruncate();
+
+        if(isSecondaryIndexEnabled()) {
+            // just check secondary index was cleared
+            secIdxTestUtils.assertQueryReturns(secIdxTestUtils.query("status",
+                                                                     (byte) 0,
+                                                                     Byte.MAX_VALUE));
+        }
+    }
+
 }

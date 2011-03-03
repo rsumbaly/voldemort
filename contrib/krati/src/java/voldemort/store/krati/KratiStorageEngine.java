@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import krati.cds.array.DataArray;
 import krati.cds.impl.segment.SegmentFactory;
@@ -20,6 +21,7 @@ import krati.util.FnvHashFunction;
 import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.NoSuchCapabilityException;
 import voldemort.store.StorageEngine;
 import voldemort.store.StoreCapabilityType;
@@ -291,7 +293,7 @@ public class KratiStorageEngine implements StorageEngine<ByteArray, byte[], byte
         }
 
         public void close() {
-        // Nothing to close here
+            // Nothing to close here
         }
 
         public boolean hasNext() {
@@ -307,6 +309,10 @@ public class KratiStorageEngine implements StorageEngine<ByteArray, byte[], byte
             delete(currentPair.getFirst(), currentPair.getSecond().getVersion());
         }
 
+    }
+
+    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+        throw new UnsupportedOperationException("No secondary index support.");
     }
 
 }

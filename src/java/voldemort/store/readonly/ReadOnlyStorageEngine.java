@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -35,6 +36,7 @@ import voldemort.VoldemortException;
 import voldemort.annotations.jmx.JmxGetter;
 import voldemort.annotations.jmx.JmxOperation;
 import voldemort.routing.RoutingStrategy;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.NoSuchCapabilityException;
 import voldemort.store.StorageEngine;
 import voldemort.store.StoreCapabilityType;
@@ -509,4 +511,9 @@ public class ReadOnlyStorageEngine implements StorageEngine<ByteArray, byte[], b
     public List<Version> getVersions(ByteArray key) {
         return StoreUtils.getVersions(get(key, null));
     }
+
+    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+        throw new UnsupportedOperationException("No secondary index support.");
+    }
+
 }

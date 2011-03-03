@@ -50,9 +50,7 @@ import voldemort.cluster.failuredetector.FailureDetectorConfig;
 import voldemort.cluster.failuredetector.ServerStoreVerifier;
 import voldemort.routing.RoutingStrategy;
 import voldemort.routing.RoutingStrategyFactory;
-import voldemort.serialization.ByteArraySerializer;
-import voldemort.serialization.IdentitySerializer;
-import voldemort.serialization.SlopSerializer;
+import voldemort.secondary.SecondaryIndexSupported;
 import voldemort.server.AbstractService;
 import voldemort.server.RequestRoutingType;
 import voldemort.server.ServiceType;
@@ -77,7 +75,6 @@ import voldemort.store.rebalancing.RebootstrappingStore;
 import voldemort.store.rebalancing.RedirectingStore;
 import voldemort.store.routed.RoutedStore;
 import voldemort.store.routed.RoutedStoreFactory;
-import voldemort.store.serialized.SerializingStorageEngine;
 import voldemort.store.slop.SlopStorageEngine;
 import voldemort.store.socket.SocketStoreFactory;
 import voldemort.store.socket.clientrequest.ClientRequestExecutorPool;
@@ -159,9 +156,22 @@ public class StorageService extends AbstractService {
     private void initStorageConfig(String configClassName) {
         try {
             Class<?> configClass = ReflectUtils.loadClass(configClassName);
-            StorageConfiguration configuration = (StorageConfiguration) ReflectUtils.callConstructor(configClass,
-                                                                                                     new Class<?>[] { VoldemortConfig.class },
-                                                                                                     new Object[] { voldemortConfig });
+
+            StorageConfiguration configuration;
+            if(configClass.isAnnotationPresent(SecondaryIndexSupported.class)) {
+                configuration = (StorageConfiguration) ReflectUtils.callConstructor(configClass,
+                                                                                    new Class<?>[] {
+                                                                                            VoldemortConfig.class,
+                                                                                            List.class },
+                                                                                    new Object[] {
+                                                                                            voldemortConfig,
+                                                                                            metadata.getStoreDefList() });
+            } else {
+                configuration = (StorageConfiguration) ReflectUtils.callConstructor(configClass,
+                                                                                    new Class<?>[] { VoldemortConfig.class },
+                                                                                    new Object[] { voldemortConfig });
+            }
+
             logger.info("Initializing " + configuration.getType() + " storage engine.");
             storageConfigs.put(configuration.getType(), configuration);
 

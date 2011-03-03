@@ -4,9 +4,11 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import voldemort.cluster.Node;
 import voldemort.cluster.failuredetector.BasicStoreVerifier;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.Store;
 import voldemort.store.StoreCapabilityType;
 import voldemort.store.UnreachableStoreException;
@@ -86,6 +88,10 @@ public class MutableStoreVerifier extends BasicStoreVerifier<ByteArray, byte[], 
 
                 public void put(ByteArray key, Versioned<byte[]> value, byte[] transforms)
                         throws VoldemortException {}
+
+                public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+                    return null;
+                }
 
             });
         }

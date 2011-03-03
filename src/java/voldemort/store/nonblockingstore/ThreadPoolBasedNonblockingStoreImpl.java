@@ -18,12 +18,14 @@ package voldemort.store.nonblockingstore;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.Store;
 import voldemort.store.StoreRequest;
 import voldemort.store.UnreachableStoreException;
@@ -169,6 +171,18 @@ public class ThreadPoolBasedNonblockingStoreImpl implements NonblockingStore {
 
     public void close() throws VoldemortException {
         innerStore.close();
+    }
+
+    public void submitGetAllKeysRequest(final RangeQuery query,
+                                        Map<ByteArray, byte[]> transforms,
+                                        NonblockingStoreCallback callback,
+                                        long timeoutMs) {
+        submit(new StoreRequest<Set<ByteArray>>() {
+
+            public Set<ByteArray> request(Store<ByteArray, byte[], byte[]> store) {
+                return innerStore.getKeysBySecondary(query);
+            }
+        }, callback, timeoutMs, "get all keys");
     }
 
 }

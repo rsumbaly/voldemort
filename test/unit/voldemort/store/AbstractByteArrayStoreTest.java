@@ -21,16 +21,17 @@ import java.util.List;
 import org.junit.Test;
 
 import voldemort.TestUtils;
+import voldemort.secondary.SecondaryIndexTestUtils;
+import voldemort.secondary.SecondaryIndexTestUtils.ByteArrayStoreProvider;
 import voldemort.utils.ByteArray;
 import voldemort.versioning.Versioned;
 
 import com.google.common.collect.Lists;
 
-/**
- * 
- */
 public abstract class AbstractByteArrayStoreTest extends
-        AbstractStoreTest<ByteArray, byte[], byte[]> {
+        AbstractStoreTest<ByteArray, byte[], byte[]> implements ByteArrayStoreProvider {
+
+    protected SecondaryIndexTestUtils secIdxTestUtils = new SecondaryIndexTestUtils(this);
 
     @Override
     public List<ByteArray> getKeys(int numValues) {
@@ -41,23 +42,52 @@ public abstract class AbstractByteArrayStoreTest extends
     }
 
     @Override
-    public List<byte[]> getValues(int numValues) {
-        return this.getByteValues(numValues, 10);
-    }
-
-    @Override
     protected boolean valuesEqual(byte[] t1, byte[] t2) {
         return TestUtils.bytesEqual(t1, t2);
     }
 
     @Test
     public void testEmptyByteArray() throws Exception {
+        if(isSecondaryIndexEnabled())
+            return;
+
         Store<ByteArray, byte[], byte[]> store = getStore();
         Versioned<byte[]> bytes = new Versioned<byte[]>(new byte[0]);
         store.put(new ByteArray(new byte[0]), bytes, null);
         List<Versioned<byte[]>> found = store.get(new ByteArray(new byte[0]), null);
         assertEquals("Incorrect number of results.", 1, found.size());
         assertEquals("Get doesn't equal put.", bytes, found.get(0));
+    }
+
+    /**
+     * @return true if secondary index tests should be performed. Disabled by
+     *         default.
+     */
+    protected boolean isSecondaryIndexEnabled() {
+        return false;
+    }
+
+    @Test
+    public void testSecondaryIndex() throws Exception {
+        if(!isSecondaryIndexEnabled())
+            return;
+
+        secIdxTestUtils.testSecondaryIndex();
+    }
+
+    @Override
+    public List<byte[]> getValues(int numValues) {
+        return secIdxTestUtils.getValues(numValues);
+    }
+
+    @Override
+    public byte[] getValue(int size) {
+        return secIdxTestUtils.getValue(size);
+    }
+
+    @Override
+    public ByteArray getKey(int size) {
+        return new ByteArray(TestUtils.randomBytes(size));
     }
 
 }

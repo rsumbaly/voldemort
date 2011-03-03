@@ -28,12 +28,12 @@ import java.util.Map;
 import org.apache.commons.io.FileDeleteStrategy;
 
 import voldemort.TestUtils;
-import voldemort.store.AbstractStoreTest;
+import voldemort.store.AbstractStringStoreTest;
 import voldemort.store.Store;
 import voldemort.versioning.VectorClock;
 import voldemort.versioning.Versioned;
 
-public class ConfigurationStorageEngineTest extends AbstractStoreTest<String, String, String> {
+public class ConfigurationStorageEngineTest extends AbstractStringStoreTest {
 
     private File tempDir;
 
@@ -52,21 +52,11 @@ public class ConfigurationStorageEngineTest extends AbstractStoreTest<String, St
     }
 
     @Override
-    public List<String> getKeys(int numKeys) {
-        return getStrings(numKeys, 10);
-    }
-
-    @Override
     public Store<String, String, String> getStore() {
         if(null == tempDir || !tempDir.exists()) {
             tempDir = TestUtils.createTempDir();
         }
         return new ConfigurationStorageEngine("test", tempDir.getAbsolutePath());
-    }
-
-    @Override
-    public List<String> getValues(int numValues) {
-        return getStrings(numValues, 8);
     }
 
     @Override

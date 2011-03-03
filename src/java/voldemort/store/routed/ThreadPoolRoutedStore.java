@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -39,6 +40,7 @@ import voldemort.VoldemortException;
 import voldemort.cluster.Cluster;
 import voldemort.cluster.Node;
 import voldemort.cluster.failuredetector.FailureDetector;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.InsufficientOperationalNodesException;
 import voldemort.store.Store;
 import voldemort.store.StoreDefinition;
@@ -56,6 +58,7 @@ import voldemort.versioning.Versioned;
 import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 /**
  * A Store which multiplexes requests to different internal Stores
@@ -183,7 +186,8 @@ public class ThreadPoolRoutedStore extends RoutedStore {
                     } catch(Exception e) {
                         failures.add(e);
                         logger.warn("Error in DELETE on node " + node.getId() + "("
-                                    + node.getHost() + ")", e);
+                                            + node.getHost() + ")",
+                                    e);
                     } finally {
                         // signal that the operation is complete
                         semaphore.release();
@@ -376,7 +380,8 @@ public class ThreadPoolRoutedStore extends RoutedStore {
                             throw e;
                         } catch(Exception e) {
                             logger.warn("Error in GET_ALL on node " + node.getId() + "("
-                                        + node.getHost() + ")", e);
+                                                + node.getHost() + ")",
+                                        e);
                             failures.add(e);
                         }
                     }
@@ -497,8 +502,7 @@ public class ThreadPoolRoutedStore extends RoutedStore {
                                                key,
                                                fetcher.execute(innerStores.get(node.getId()),
                                                                key,
-                                                               transforms),
-                                               null));
+                                                               transforms), null));
                 ++successes;
                 recordSuccess(node, startNs);
             } catch(UnreachableStoreException e) {
@@ -924,4 +928,107 @@ public class ThreadPoolRoutedStore extends RoutedStore {
 
         List<R> execute(Store<ByteArray, byte[], byte[]> store, ByteArray key, byte[] transforms);
     }
+
+    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+        Set<ByteArray> result = Sets.newHashSet();
+
+        List<Callable<GetAllKeysResult>> callables = Lists.newArrayList();
+        for(Node node: routingStrategy.getNodes()) {
+            if(failureDetector.isAvailable(node))
+                callables.add(new GetAllKeysCallable(node, query));
+        }
+
+        // A list of thrown exceptions, indicating the number of failures
+        List<Throwable> failures = Lists.newArrayList();
+
+        List<Future<GetAllKeysResult>> futures;
+        try {
+            // TODO What to do about timeouts? They should be longer as
+            // getAllKeys
+            // is likely to
+            // take longer. At the moment, it's just timeoutMs * 3, but should
+            // this be based on the number of the keys?
+            futures = executor.invokeAll(callables, timeoutMs * 3, TimeUnit.MILLISECONDS);
+        } catch(InterruptedException e) {
+            throw new InsufficientOperationalNodesException("getAllKeys operation interrupted.", e);
+        }
+        for(Future<GetAllKeysResult> f: futures) {
+            if(f.isCancelled()) {
+                logger.warn("GetKeysBySecondary operation timed out after " + timeoutMs + " ms.");
+                continue;
+            }
+            try {
+                GetAllKeysResult getResult = f.get();
+                if(getResult.exception != null) {
+                    if(getResult.exception instanceof VoldemortApplicationException) {
+                        throw (VoldemortException) getResult.exception;
+                    }
+                    failures.add(getResult.exception);
+                    continue;
+                }
+                result.addAll(getResult.retrieved);
+            } catch(InterruptedException e) {
+                throw new InsufficientOperationalNodesException("getAllKeys operation interrupted.",
+                                                                e);
+            } catch(ExecutionException e) {
+                // We catch all Throwables apart from Error in the callable, so
+                // the else part
+                // should never happen
+                if(e.getCause() instanceof Error)
+                    throw (Error) e.getCause();
+                else
+                    logger.error(e.getMessage(), e);
+            }
+        }
+
+        // TODO check number of failures and throw InsufficientOperationalNodes
+        // when needed
+
+        return result;
+    }
+
+    private final class GetAllKeysCallable implements Callable<GetAllKeysResult> {
+
+        private final Node node;
+        private final RangeQuery query;
+
+        private GetAllKeysCallable(Node node, RangeQuery query) {
+            this.node = node;
+            this.query = query;
+        }
+
+        public GetAllKeysResult call() {
+            Set<ByteArray> retrieved = Sets.newHashSet();
+            Throwable exception = null;
+            long startNs = System.nanoTime();
+            try {
+                retrieved = innerStores.get(node.getId()).getKeysBySecondary(query);
+                recordSuccess(node, startNs);
+            } catch(UnreachableStoreException e) {
+                exception = e;
+                recordException(node, startNs, e);
+            } catch(Throwable e) {
+                if(e instanceof Error)
+                    throw (Error) e;
+                exception = e;
+                logger.warn("Error in GET KEYS BY SECONDARY on node " + node.getId() + "("
+                                    + node.getHost() + ")",
+                            e);
+            }
+            return new GetAllKeysResult(retrieved, exception);
+        }
+    }
+
+    private static class GetAllKeysResult {
+
+        final Set<ByteArray> retrieved;
+        /* Note that this can never be an Error subclass */
+        final Throwable exception;
+
+        private GetAllKeysResult(Set<ByteArray> retrieved, Throwable exception) {
+            this.exception = exception;
+            this.retrieved = retrieved;
+        }
+    }
+
 }

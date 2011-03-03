@@ -18,8 +18,10 @@ package voldemort.store;
 
 import java.io.Serializable;
 import java.util.HashMap;
+import java.util.List;
 
 import voldemort.client.RoutingTier;
+import voldemort.secondary.SecondaryIndexDefinition;
 import voldemort.serialization.SerializerDefinition;
 import voldemort.store.slop.strategy.HintedHandoffStrategyType;
 import voldemort.utils.Utils;
@@ -57,6 +59,7 @@ public class StoreDefinition implements Serializable {
     private final String serializerFactory;
     private final HintedHandoffStrategyType hintedHandoffStrategyType;
     private final Integer hintPrefListSize;
+    private final List<SecondaryIndexDefinition> secondaryIndexDefinition;
 
     public StoreDefinition(String name,
                            String type,
@@ -79,7 +82,8 @@ public class StoreDefinition implements Serializable {
                            Integer retentionThrottleRate,
                            String factory,
                            HintedHandoffStrategyType hintedHandoffStrategyType,
-                           Integer hintPrefListSize) {
+                           Integer hintPrefListSize,
+                           List<SecondaryIndexDefinition> secondaryIndexDefinition) {
         this.name = Utils.notNull(name);
         this.type = Utils.notNull(type);
         this.replicationFactor = replicationFactor;
@@ -102,6 +106,7 @@ public class StoreDefinition implements Serializable {
         this.serializerFactory = factory;
         this.hintedHandoffStrategyType = hintedHandoffStrategyType;
         this.hintPrefListSize = hintPrefListSize;
+        this.secondaryIndexDefinition = secondaryIndexDefinition;
         checkParameterLegality();
     }
 
@@ -281,6 +286,10 @@ public class StoreDefinition implements Serializable {
         return hintPrefListSize != null;
     }
 
+    public List<SecondaryIndexDefinition> getSecondaryIndexDefinitions() {
+        return secondaryIndexDefinition;
+    }
+
     @Override
     public boolean equals(Object o) {
         if(this == o)
@@ -323,7 +332,8 @@ public class StoreDefinition implements Serializable {
                                 def.getSerializerFactory() != null ? def.getSerializerFactory()
                                                                   : null)
                && Objects.equal(getHintedHandoffStrategyType(), def.getHintedHandoffStrategyType())
-               && Objects.equal(getHintPrefListSize(), def.getHintPrefListSize());
+               && Objects.equal(getHintPrefListSize(), def.getHintPrefListSize())
+               && Objects.equal(getSecondaryIndexDefinitions(), def.getSecondaryIndexDefinitions());
     }
 
     @Override
@@ -352,7 +362,8 @@ public class StoreDefinition implements Serializable {
                                 getSerializerFactory(),
                                 hasHintedHandoffStrategyType() ? getHintedHandoffStrategyType()
                                                               : null,
-                                hasHintPreflistSize() ? getHintPrefListSize() : null);
+                                hasHintPreflistSize() ? getHintPrefListSize() : null,
+                                getSecondaryIndexDefinitions());
     }
 
     @Override
@@ -370,6 +381,8 @@ public class StoreDefinition implements Serializable {
                + getZoneCountReads() + ", zone-count-writes = " + getZoneCountWrites()
                + ", serializer factory = " + getSerializerFactory() + ")"
                + ", hinted-handoff-strategy = " + getHintedHandoffStrategyType()
-               + ", hint-preflist-size = " + getHintPrefListSize() + ")";
+               + ", hint-preflist-size = " + getHintPrefListSize() + ", secondary-indexes = "
+               + getSecondaryIndexDefinitions() + ")";
     }
+
 }

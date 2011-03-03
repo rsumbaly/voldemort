@@ -24,11 +24,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
 import voldemort.client.protocol.RequestFormat;
+import voldemort.secondary.RangeQuery;
 import voldemort.serialization.VoldemortOpCode;
 import voldemort.server.RequestRoutingType;
 import voldemort.store.ErrorCodeMapper;
@@ -39,6 +41,8 @@ import voldemort.utils.ByteUtils;
 import voldemort.versioning.VectorClock;
 import voldemort.versioning.Version;
 import voldemort.versioning.Versioned;
+
+import com.google.common.collect.Sets;
 
 /**
  * The {@link voldemort.client.protocol.RequestFormat} for a low-overhead custom
@@ -297,6 +301,10 @@ public class VoldemortNativeClientRequestFormat implements RequestFormat {
                     case VoldemortOpCode.PUT_OP_CODE:
                         readPutResponse(inputStream);
                         break;
+
+                    case VoldemortOpCode.GET_KEYS_BY_SEC_OP_CODE:
+                        readGetKeysBySecondaryResponse(inputStream);
+                        break;
                 }
             } catch(VoldemortException e) {
                 // Ignore application-level exceptions
@@ -316,4 +324,38 @@ public class VoldemortNativeClientRequestFormat implements RequestFormat {
             return false;
         }
     }
+
+    public void writeGetKeysBySecondary(DataOutputStream outputStream,
+                                        String storeName,
+                                        RangeQuery query,
+                                        RequestRoutingType routingType) throws IOException {
+        // Check query
+        outputStream.writeByte(VoldemortOpCode.GET_KEYS_BY_SEC_OP_CODE);
+        outputStream.writeUTF(storeName);
+        if(protocolVersion > 0) {
+            outputStream.writeBoolean(routingType.equals(RequestRoutingType.ROUTED));
+        }
+        if(protocolVersion > 1) {
+            outputStream.writeByte(routingType.getRoutingTypeCode());
+        }
+        query.serialize(outputStream);
+    }
+
+    public boolean isCompleteGetKeysBySecondaryResponse(ByteBuffer buffer) {
+        return isCompleteResponse(buffer, VoldemortOpCode.GET_KEYS_BY_SEC_OP_CODE);
+    }
+
+    public Set<ByteArray> readGetKeysBySecondaryResponse(DataInputStream stream) throws IOException {
+        checkException(stream);
+        int numResults = stream.readInt();
+        Set<ByteArray> results = Sets.newHashSet();
+        for(int i = 0; i < numResults; i++) {
+            int keySize = stream.readInt();
+            byte[] key = new byte[keySize];
+            stream.readFully(key);
+            results.add(new ByteArray(key));
+        }
+        return results;
+    }
+
 }

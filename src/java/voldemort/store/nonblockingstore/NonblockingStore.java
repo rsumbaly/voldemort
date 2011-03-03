@@ -19,6 +19,7 @@ package voldemort.store.nonblockingstore;
 import java.util.Map;
 
 import voldemort.VoldemortException;
+import voldemort.secondary.RangeQuery;
 import voldemort.store.Store;
 import voldemort.store.routed.RoutedStore;
 import voldemort.store.socket.SocketStore;
@@ -72,6 +73,11 @@ public interface NonblockingStore {
                                     Map<ByteArray, byte[]> transforms,
                                     NonblockingStoreCallback callback,
                                     long timeoutMs);
+
+    public void submitGetAllKeysRequest(RangeQuery query,
+                                        Map<ByteArray, byte[]> transforms,
+                                        NonblockingStoreCallback callback,
+                                        long timeoutMs);
 
     public void submitGetVersionsRequest(ByteArray key,
                                          NonblockingStoreCallback callback,

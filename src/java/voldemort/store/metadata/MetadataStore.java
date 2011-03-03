@@ -41,6 +41,7 @@ import voldemort.cluster.Cluster;
 import voldemort.routing.RouteToAllStrategy;
 import voldemort.routing.RoutingStrategy;
 import voldemort.routing.RoutingStrategyFactory;
+import voldemort.secondary.RangeQuery;
 import voldemort.server.rebalance.RebalancerState;
 import voldemort.store.StorageEngine;
 import voldemort.store.Store;
@@ -196,8 +197,9 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
     public void put(String key, Object value) {
         if(METADATA_KEYS.contains(key)) {
             VectorClock version = (VectorClock) get(key, null).get(0).getVersion();
-            put(key, new Versioned<Object>(value, version.incremented(getNodeId(),
-                                                                      System.currentTimeMillis())));
+            put(key,
+                new Versioned<Object>(value, version.incremented(getNodeId(),
+                                                                 System.currentTimeMillis())));
         } else {
             throw new VoldemortException("Unhandled Key:" + key + " for MetadataStore put()");
         }
@@ -542,4 +544,9 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
 
         throw new VoldemortException("No metadata found for required key:" + key);
     }
+
+    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+        throw new UnsupportedOperationException("No secondary index support.");
+    }
+
 }

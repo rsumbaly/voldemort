@@ -1,16 +1,22 @@
 package voldemort.client;
 
 import java.util.Arrays;
+import java.util.Date;
 import java.util.Map;
 
 import junit.framework.TestCase;
+import voldemort.secondary.RangeQuery;
+import voldemort.secondary.SecondaryIndexTestUtils;
 import voldemort.serialization.Serializer;
 import voldemort.serialization.StringSerializer;
+import voldemort.store.AbstractByteArrayStoreTest;
 import voldemort.utils.SystemTime;
 import voldemort.utils.Time;
 import voldemort.versioning.ObsoleteVersionException;
 import voldemort.versioning.VectorClock;
 import voldemort.versioning.Versioned;
+
+import com.google.common.collect.Sets;
 
 public class DefaultStoreClientTest extends TestCase {
 
@@ -63,8 +69,9 @@ public class DefaultStoreClientTest extends TestCase {
     }
 
     public void testGetUnversionedWithDefault() {
-        assertEquals("GET of non-existant key should return default.", "v", client.getValue("k",
-                                                                                            "v"));
+        assertEquals("GET of non-existant key should return default.",
+                     "v",
+                     client.getValue("k", "v"));
         assertEquals("null should be an acceptable default", null, client.getValue("k", null));
         client.put("k", "v");
         assertEquals("default should not be returned if value is present.",
@@ -118,11 +125,11 @@ public class DefaultStoreClientTest extends TestCase {
     }
 
     public void testDeleteVersion() {
-        assertFalse("Delete of non-existant key should be false.", client.delete("k",
-                                                                                 new VectorClock()));
+        assertFalse("Delete of non-existant key should be false.",
+                    client.delete("k", new VectorClock()));
         client.put("k", new Versioned<String>("v"));
-        assertFalse("Delete of a lesser version should be false.", client.delete("k",
-                                                                                 new VectorClock()));
+        assertFalse("Delete of a lesser version should be false.",
+                    client.delete("k", new VectorClock()));
         assertNotNull("After failed delete, value should still be there.", client.get("k"));
         assertTrue("Delete of k, with the current version should succeed.",
                    client.delete("k", new VectorClock().incremented(nodeId, time.getMilliseconds())));
@@ -142,5 +149,35 @@ public class DefaultStoreClientTest extends TestCase {
         result = client.getAll(Arrays.asList("m", "s"));
         assertNotNull(client.get("k").getVersion());
         assertEquals(0, result.size());
+    }
+
+    private StoreClient<String, Object> setUpSecondary() {
+        return new MockStoreClientFactory(new StringSerializer(),
+                                          SecondaryIndexTestUtils.VALUE_SERIALIZER,
+                                          null,
+                                          new StringSerializer(),
+                                          SecondaryIndexTestUtils.SEC_IDX_PROCESSOR,
+                                          nodeId,
+                                          time).getStoreClient("test");
+    }
+
+    /**
+     * Check basic secondary index functionality through the store client
+     * interface.
+     * More thorough testing is done
+     * in {@link AbstractByteArrayStoreTest#testSecondaryIndex()}
+     */
+    public void testGetAllKeys() {
+        StoreClient<String, Object> client = setUpSecondary();
+        client.put("k1", SecondaryIndexTestUtils.testValue("data1", 2, new Date(100)));
+        client.put("k2", SecondaryIndexTestUtils.testValue("data2", 1, new Date(101)));
+        client.put("k3", SecondaryIndexTestUtils.testValue("data3", 0, new Date(102)));
+
+        assertEquals(Sets.newHashSet("k2", "k1"),
+                     client.getKeysBySecondary(new RangeQuery("status", (byte) 1, (byte) 5)));
+        assertEquals(Sets.newHashSet("k3", "k2"),
+                     client.getKeysBySecondary(new RangeQuery("lastmod",
+                                                              new Date(101),
+                                                              new Date(200))));
     }
 }

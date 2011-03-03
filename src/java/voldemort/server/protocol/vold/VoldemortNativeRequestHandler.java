@@ -8,10 +8,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
+import voldemort.secondary.RangeQuery;
 import voldemort.serialization.VoldemortOpCode;
 import voldemort.server.RequestRoutingType;
 import voldemort.server.StoreRepository;
@@ -73,6 +75,9 @@ public class VoldemortNativeRequestHandler extends AbstractRequestHandler implem
                     break;
                 case VoldemortOpCode.GET_VERSION_OP_CODE:
                     handleGetVersion(inputStream, outputStream, store);
+                    break;
+                case VoldemortOpCode.GET_KEYS_BY_SEC_OP_CODE:
+                    handleGetKeys(inputStream, outputStream, store);
                     break;
                 default:
                     throw new IOException("Unknown op code: " + opCode);
@@ -183,6 +188,10 @@ public class VoldemortNativeRequestHandler extends AbstractRequestHandler implem
                     buffer.position(newPosition);
                     break;
                 }
+                case VoldemortOpCode.GET_KEYS_BY_SEC_OP_CODE: {
+                    RangeQuery.deserialize(inputStream);
+                    break;
+                }
                 default:
                     // Do nothing, let the request handler address this...
             }
@@ -290,6 +299,31 @@ public class VoldemortNativeRequestHandler extends AbstractRequestHandler implem
             outputStream.write(entry.getKey().get());
             // write the values
             writeResults(outputStream, entry.getValue());
+        }
+    }
+
+    private void handleGetKeys(DataInputStream inputStream,
+                               DataOutputStream outputStream,
+                               Store<ByteArray, byte[], byte[]> store) throws IOException {
+        // read query
+        RangeQuery query = RangeQuery.deserialize(inputStream);
+
+        // execute the operation
+        Set<ByteArray> results = null;
+        try {
+            results = store.getKeysBySecondary(query);
+            outputStream.writeShort(0);
+        } catch(VoldemortException e) {
+            writeException(outputStream, e);
+            return;
+        }
+
+        // write back the results
+        outputStream.writeInt(results.size());
+        for(ByteArray key: results) {
+            // write the key
+            outputStream.writeInt(key.length());
+            outputStream.write(key.get());
         }
     }
 

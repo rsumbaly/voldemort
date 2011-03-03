@@ -16,10 +16,6 @@
 
 package voldemort.store.memory;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import voldemort.TestUtils;
 import voldemort.store.AbstractStorageEngineTest;
 import voldemort.store.StorageEngine;
 import voldemort.utils.ByteArray;
@@ -37,14 +33,6 @@ public class InMemoryStorageEngineTest extends AbstractStorageEngineTest {
     public void setUp() throws Exception {
         super.setUp();
         this.store = new InMemoryStorageEngine<ByteArray, byte[], byte[]>("test");
-    }
-
-    @Override
-    public List<ByteArray> getKeys(int numKeys) {
-        List<ByteArray> keys = new ArrayList<ByteArray>(numKeys);
-        for(int i = 0; i < numKeys; i++)
-            keys.add(new ByteArray(TestUtils.randomBytes(10)));
-        return keys;
     }
 
 }

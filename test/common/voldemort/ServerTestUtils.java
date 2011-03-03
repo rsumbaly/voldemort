@@ -41,6 +41,7 @@ import voldemort.client.protocol.admin.AdminClientConfig;
 import voldemort.cluster.Cluster;
 import voldemort.cluster.Node;
 import voldemort.routing.RoutingStrategyType;
+import voldemort.secondary.SecondaryIndexTestUtils;
 import voldemort.serialization.SerializerDefinition;
 import voldemort.server.AbstractSocketService;
 import voldemort.server.RequestRoutingType;
@@ -60,6 +61,7 @@ import voldemort.store.UnreachableStoreException;
 import voldemort.store.http.HttpStore;
 import voldemort.store.memory.InMemoryStorageConfiguration;
 import voldemort.store.memory.InMemoryStorageEngine;
+import voldemort.store.memory.InMemoryStorageEngineSI;
 import voldemort.store.metadata.MetadataStore;
 import voldemort.store.slop.Slop;
 import voldemort.store.slop.strategy.HintedHandoffStrategyType;
@@ -80,9 +82,20 @@ import com.google.common.collect.ImmutableList;
  */
 public class ServerTestUtils {
 
-    public static StoreRepository getStores(String storeName, String clusterXml, String storesXml) {
+    /**
+     * @param secondaryIndexSupport true if we need an inner store that supports
+     *        secondary indexes. The default test processor will be used (
+     *        {@link SecondaryIndexTestUtils#SEC_IDX_PROCESSOR})
+     */
+    public static StoreRepository getStores(String storeName,
+                                            String clusterXml,
+                                            String storesXml,
+                                            boolean secondaryIndexSupport) {
         StoreRepository repository = new StoreRepository();
-        Store<ByteArray, byte[], byte[]> store = new InMemoryStorageEngine<ByteArray, byte[], byte[]>(storeName);
+        Store<ByteArray, byte[], byte[]> store = secondaryIndexSupport ? new InMemoryStorageEngineSI(storeName,
+                                                                                                     SecondaryIndexTestUtils.SEC_IDX_PROCESSOR)
+                                                                      : new InMemoryStorageEngine<ByteArray, byte[], byte[]>(storeName);
+
         repository.addLocalStore(store);
         repository.addRoutedStore(store);
 
@@ -105,11 +118,26 @@ public class ServerTestUtils {
                                                          String storesXml,
                                                          String storeName,
                                                          int port) {
+        return getSocketService(useNio, clusterXml, storesXml, storeName, port, false);
+    }
+
+    /**
+     * @param secondaryIndexSupport true if we need an inner store that supports
+     *        secondary indexes. The default test processor will be used (
+     *        {@link SecondaryIndexTestUtils#SEC_IDX_PROCESSOR})
+     */
+    public static AbstractSocketService getSocketService(boolean useNio,
+                                                         String clusterXml,
+                                                         String storesXml,
+                                                         String storeName,
+                                                         int port,
+                                                         boolean secondaryIndexSupport) {
         RequestHandlerFactory factory = getSocketRequestHandlerFactory(clusterXml,
                                                                        storesXml,
                                                                        getStores(storeName,
                                                                                  clusterXml,
-                                                                                 storesXml));
+                                                                                 storesXml,
+                                                                                 secondaryIndexSupport));
         return getSocketService(useNio, factory, port, 5, 10, 10000);
     }
 
@@ -191,7 +219,7 @@ public class ServerTestUtils {
                                          String storeName,
                                          RequestFormatType requestFormat,
                                          int port) throws Exception {
-        StoreRepository repository = getStores(storeName, clusterXml, storesXml);
+        StoreRepository repository = getStores(storeName, clusterXml, storesXml, false);
 
         // initialize servlet
         Server server = new Server(port);
