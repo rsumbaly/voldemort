@@ -83,6 +83,14 @@ public class VoldemortServer extends AbstractService {
         this.services = createServices();
     }
 
+    /**
+     * Starts Voldemort server with some Voldemort configuration and cluster
+     * metadata. <br>
+     * Used only for tests. <br>
+     * 
+     * @param config The Voldemort configuration
+     * @param cluster The cluster metadata
+     */
     public VoldemortServer(VoldemortConfig config, Cluster cluster) {
         super(ServiceType.VOLDEMORT);
         this.voldemortConfig = config;
@@ -104,6 +112,11 @@ public class VoldemortServer extends AbstractService {
         return asyncService;
     }
 
+    /**
+     * Creates a list of services and returns it as a list
+     * 
+     * @return List of services created
+     */
     private List<VoldemortService> createServices() {
 
         /* Services are given in the order they must be started */
