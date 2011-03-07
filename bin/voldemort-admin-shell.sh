@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #
-#   Copyright 2008-2010 LinkedIn, Inc
+#   Copyright 2008-2009 LinkedIn, Inc
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #   you may not use this file except in compliance with the License.
@@ -16,6 +16,13 @@
 #  limitations under the License.
 #
 
+if [ $# -lt 1 ];
+then
+	echo 'USAGE: bin/voldemort-shell.sh bootstrap_url [command_file]'
+	exit 1
+fi
+
 base_dir=$(dirname $0)/..
 
-$base_dir/bin/run-class.sh voldemort.VoldemortAdminTool $@
+$base_dir/bin/run-class.sh jline.ConsoleRunner \
+    voldemort.utils.VoldemortAdminClientShell $@
