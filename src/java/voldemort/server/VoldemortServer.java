@@ -78,7 +78,7 @@ public class VoldemortServer extends AbstractService {
         this.voldemortConfig = config;
         this.storeRepository = new StoreRepository();
         this.metadata = MetadataStore.readFromDirectory(new File(this.voldemortConfig.getMetadataDirectory()),
-                                                        voldemortConfig.getNodeId());
+                                                        voldemortConfig);
         this.identityNode = metadata.getCluster().getNodeById(voldemortConfig.getNodeId());
         this.services = createServices();
     }
@@ -103,7 +103,7 @@ public class VoldemortServer extends AbstractService {
         metadataInnerEngine.put(MetadataStore.CLUSTER_KEY,
                                 new Versioned<String>(new ClusterMapper().writeCluster(cluster)),
                                 null);
-        this.metadata = new MetadataStore(metadataInnerEngine, voldemortConfig.getNodeId());
+        this.metadata = new MetadataStore(metadataInnerEngine, voldemortConfig);
 
         this.services = createServices();
     }

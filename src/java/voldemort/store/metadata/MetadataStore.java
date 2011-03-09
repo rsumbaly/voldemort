@@ -41,6 +41,7 @@ import voldemort.cluster.Cluster;
 import voldemort.routing.RouteToAllStrategy;
 import voldemort.routing.RoutingStrategy;
 import voldemort.routing.RoutingStrategyFactory;
+import voldemort.server.VoldemortConfig;
 import voldemort.server.rebalance.RebalancerState;
 import voldemort.store.StorageEngine;
 import voldemort.store.Store;
@@ -76,6 +77,7 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
     public static final String STORES_KEY = "stores.xml";
     public static final String SERVER_STATE_KEY = "server.state";
     public static final String NODE_ID_KEY = "node.id";
+    public static final String ZOOKEEPER_CONNECTION_STRING_KEY = "zk.connect";
     public static final String REBALANCING_STEAL_INFO = "rebalancing.steal.info.key";
     public static final String GRANDFATHERING_INFO = "grandfathering.info.key";
 
@@ -86,7 +88,8 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
     public static final Set<String> OPTIONAL_KEYS = ImmutableSet.of(SERVER_STATE_KEY,
                                                                     NODE_ID_KEY,
                                                                     REBALANCING_STEAL_INFO,
-                                                                    GRANDFATHERING_INFO);
+                                                                    GRANDFATHERING_INFO,
+                                                                    ZOOKEEPER_CONNECTION_STRING_KEY);
 
     public static final Set<Object> METADATA_KEYS = ImmutableSet.builder()
                                                                 .addAll(REQUIRED_KEYS)
@@ -109,6 +112,7 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
 
     private final Store<String, String, String> innerStore;
     private final Map<String, Versioned<Object>> metadataCache;
+    private final VoldemortConfig voldemortConfig;
 
     private static final ClusterMapper clusterMapper = new ClusterMapper();
     private static final StoreDefinitionsMapper storeMapper = new StoreDefinitionsMapper();
@@ -124,12 +128,13 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
 
     private static final Logger logger = Logger.getLogger(MetadataStore.class);
 
-    public MetadataStore(Store<String, String, String> innerStore, int nodeId) {
+    public MetadataStore(Store<String, String, String> innerStore, VoldemortConfig voldemortConfig) {
         this.innerStore = innerStore;
         this.metadataCache = new HashMap<String, Versioned<Object>>();
         this.storeNameTolisteners = new ConcurrentHashMap<String, MetadataStoreListener>();
+        this.voldemortConfig = voldemortConfig;
 
-        init(nodeId);
+        init();
     }
 
     public void addMetadataStoreListener(String storeName, MetadataStoreListener listener) {
@@ -146,7 +151,7 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
         this.storeNameTolisteners.remove(storeName);
     }
 
-    public static MetadataStore readFromDirectory(File dir, int nodeId) {
+    public static MetadataStore readFromDirectory(File dir, VoldemortConfig voldemortConfig) {
         if(!Utils.isReadableDir(dir))
             throw new IllegalArgumentException("Metadata directory " + dir.getAbsolutePath()
                                                + " does not exist or can not be read.");
@@ -155,7 +160,7 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
                                                + ".");
         Store<String, String, String> innerStore = new ConfigurationStorageEngine(MetadataStore.METADATA_STORE_NAME,
                                                                                   dir.getAbsolutePath());
-        return new MetadataStore(innerStore, nodeId);
+        return new MetadataStore(innerStore, voldemortConfig);
     }
 
     public String getName() {
@@ -285,7 +290,7 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
                                   getVersions(new ByteArray(ByteUtils.getBytes(key, "UTF-8"))).get(0));
         }
 
-        init(getNodeId());
+        init();
     }
 
     public void cleanRebalancingState(RebalancePartitionsInfo stealInfo) {
@@ -421,19 +426,22 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
     /**
      * Initializes the metadataCache for MetadataStore
      */
-    private void init(int nodeId) {
+    private void init() {
         logger.info("metadata init().");
+
+        // Initialize the Zk Connection
+        initCache(ZOOKEEPER_CONNECTION_STRING_KEY, voldemortConfig.getZkConnect());
 
         // Required keys
         initCache(CLUSTER_KEY);
         initCache(STORES_KEY);
 
-        initCache(NODE_ID_KEY, nodeId);
-        if(getNodeId() != nodeId)
+        initCache(NODE_ID_KEY, voldemortConfig.getNodeId());
+        if(getNodeId() != voldemortConfig.getNodeId())
             throw new RuntimeException("Attempt to start previous node:"
                                        + getNodeId()
                                        + " as node:"
-                                       + nodeId
+                                       + voldemortConfig.getNodeId()
                                        + " (Did you copy config directory ? try deleting .temp .version in config dir to force clean) aborting ...");
 
         // Initialize with default if not present
@@ -498,7 +506,8 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
         } else if(GRANDFATHERING_INFO.equals(key)) {
             GrandfatherState grandfatherState = (GrandfatherState) value.getValue();
             valueStr = grandfatherState.toJsonString();
-        } else if(SERVER_STATE_KEY.equals(key) || NODE_ID_KEY.equals(key)) {
+        } else if(SERVER_STATE_KEY.equals(key) || NODE_ID_KEY.equals(key)
+                  || ZOOKEEPER_CONNECTION_STRING_KEY.equals(key)) {
             valueStr = value.getValue().toString();
         } else {
             throw new VoldemortException("Unhandled key:'" + key
@@ -543,6 +552,8 @@ public class MetadataStore implements StorageEngine<ByteArray, byte[], byte[]> {
             } else {
                 valueObject = new GrandfatherState(Arrays.asList(RebalancePartitionsInfo.create(valueString)));
             }
+        } else if(ZOOKEEPER_CONNECTION_STRING_KEY.equals(key)) {
+            valueObject = value.getValue();
         } else {
             throw new VoldemortException("Unhandled key:'" + key
                                          + "' for String to Object serialization.");

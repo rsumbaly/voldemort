@@ -171,6 +171,8 @@ public class VoldemortConfig implements Serializable {
     private int rebalancingServicePeriod;
     private int maxParallelStoresRebalancing;
 
+    private String zkConnect;
+
     public VoldemortConfig(Properties props) {
         this(new Props(props));
     }
@@ -182,6 +184,7 @@ public class VoldemortConfig implements Serializable {
             this.nodeId = getIntEnvVariable(VOLDEMORT_NODE_ID_VAR_NAME);
         }
         this.voldemortHome = props.getString("voldemort.home");
+        this.zkConnect = props.getString("zk.connect", "");
         this.dataDirectory = props.getString("data.directory", this.voldemortHome + File.separator
                                                                + "data");
         this.metadataDirectory = props.getString("metadata.directory", voldemortHome
@@ -415,6 +418,20 @@ public class VoldemortConfig implements Serializable {
         }
 
         return new VoldemortConfig(properties);
+    }
+
+    public String getZkConnect() {
+        return zkConnect;
+    }
+
+    public void setZkConnect(String zkConnect) {
+        this.zkConnect = zkConnect;
+    }
+
+    public boolean hasZkConnect() {
+        if(this.zkConnect.length() > 0)
+            return true;
+        return false;
     }
 
     /**

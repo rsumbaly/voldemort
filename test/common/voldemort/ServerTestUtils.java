@@ -379,7 +379,7 @@ public class ServerTestUtils {
                        new Versioned<String>(new StoreDefinitionsMapper().writeStoreList(storeDefs)),
                        null);
 
-        return new MetadataStore(innerStore, 0);
+        return new MetadataStore(innerStore, getVoldemortConfig());
     }
 
     public static List<StoreDefinition> getStoreDefs(int numStores) {
