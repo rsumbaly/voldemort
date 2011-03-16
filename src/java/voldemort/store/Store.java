@@ -109,6 +109,6 @@ public interface Store<K, V, T> {
      * 
      * @return set of matching keys.
      */
-    public Set<K> getKeysBySecondary(RangeQuery query);
+    public Set<K> getAllKeys(RangeQuery query);
 
 }

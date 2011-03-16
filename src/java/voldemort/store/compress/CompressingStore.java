@@ -141,8 +141,8 @@ public class CompressingStore implements Store<ByteArray, byte[], byte[]> {
         return innerStore.getVersions(deflateKey(key));
     }
 
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
-        return innerStore.getKeysBySecondary(query);
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
+        return innerStore.getAllKeys(query);
     }
 
     private List<Versioned<byte[]>> inflateValues(List<Versioned<byte[]>> result) {

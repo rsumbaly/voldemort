@@ -242,7 +242,7 @@ public class ConfigurationStorageEngine implements StorageEngine<String, String,
         throw new VoldemortException("Truncate not supported in ConfigurationStorageEngine");
     }
 
-    public Set<String> getKeysBySecondary(RangeQuery query) {
+    public Set<String> getAllKeys(RangeQuery query) {
         throw new UnsupportedOperationException("No secondary index support.");
     }
 

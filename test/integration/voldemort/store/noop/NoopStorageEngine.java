@@ -129,7 +129,7 @@ public class NoopStorageEngine implements StorageEngine<ByteArray, byte[], byte[
         }
     }
 
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
         throw new UnsupportedOperationException("No secondary index support.");
     }
 

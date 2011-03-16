@@ -34,9 +34,9 @@ import voldemort.store.nonblockingstore.NonblockingStore;
 import voldemort.store.nonblockingstore.NonblockingStoreCallback;
 import voldemort.store.routed.BasicPipelineData;
 import voldemort.store.routed.Pipeline;
-import voldemort.store.routed.Response;
 import voldemort.store.routed.Pipeline.Event;
 import voldemort.store.routed.Pipeline.Operation;
+import voldemort.store.routed.Response;
 import voldemort.store.slop.HintedHandoff;
 import voldemort.store.slop.Slop;
 import voldemort.utils.ByteArray;
@@ -126,8 +126,10 @@ public class PerformParallelRequests<V, PD extends BasicPipelineData<V>> extends
                                                                                            result,
                                                                                            requestTime);
                     responses.put(node.getId(), response);
-                    if(Pipeline.Operation.DELETE == pipeline.getOperation() && pipeline.isFinished()) {
-                        if(isHintedHandoffEnabled() && response.getValue() instanceof UnreachableStoreException) {
+                    if(Pipeline.Operation.DELETE == pipeline.getOperation()
+                       && pipeline.isFinished()) {
+                        if(isHintedHandoffEnabled()
+                           && response.getValue() instanceof UnreachableStoreException) {
                             Slop slop = new Slop(pipelineData.getStoreName(),
                                                  Slop.Operation.DELETE,
                                                  key,
@@ -175,14 +177,13 @@ public class PerformParallelRequests<V, PD extends BasicPipelineData<V>> extends
                 logger.warn(e, e);
         }
 
-
         for(Response<ByteArray, Object> response: responses.values()) {
             if(response.getValue() instanceof Exception) {
                 if(handleResponseError(response, pipeline, failureDetector))
                     return;
             } else {
                 pipelineData.incrementSuccesses();
-                Response<ByteArray,  V> rCast = Utils.uncheckedCast(response);
+                Response<ByteArray, V> rCast = Utils.uncheckedCast(response);
                 pipelineData.getResponses().add(rCast);
                 failureDetector.recordSuccess(response.getNode(), response.getRequestTime());
                 pipelineData.getZoneResponses().add(response.getNode().getZoneId());

@@ -16,7 +16,6 @@
 
 package voldemort.store.routed.action;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -27,17 +26,22 @@ import org.apache.log4j.Level;
 import voldemort.cluster.Node;
 import voldemort.cluster.failuredetector.FailureDetector;
 import voldemort.secondary.RangeQuery;
+import voldemort.store.InsufficientOperationalNodesException;
 import voldemort.store.nonblockingstore.NonblockingStore;
 import voldemort.store.nonblockingstore.NonblockingStoreCallback;
 import voldemort.store.routed.GetAllKeysPipelineData;
 import voldemort.store.routed.Pipeline;
 import voldemort.store.routed.Pipeline.Event;
+import voldemort.store.routed.Response;
 import voldemort.utils.ByteArray;
 
+import com.google.common.collect.HashMultiset;
 import com.google.common.collect.MapMaker;
+import com.google.common.collect.Multiset;
+import com.google.common.collect.Multiset.Entry;
 
 public class PerformParallelGetAllKeysRequests extends
-        AbstractAction<ByteArray, List<ByteArray>, GetAllKeysPipelineData> {
+        AbstractAction<ByteArray, Set<ByteArray>, GetAllKeysPipelineData> {
 
     private final long timeoutMs;
 
@@ -47,16 +51,24 @@ public class PerformParallelGetAllKeysRequests extends
 
     private final RangeQuery query;
 
+    private final int requiredTotal;
+
+    private final int requiredPerKey;
+
     public PerformParallelGetAllKeysRequests(GetAllKeysPipelineData pipelineData,
                                              FailureDetector failureDetector,
                                              long timeoutMs,
                                              Map<Integer, NonblockingStore> nonblockingStores,
-                                             RangeQuery query) {
+                                             RangeQuery query,
+                                             int requiredTotal,
+                                             int requiredPerKey) {
         super(pipelineData, Event.COMPLETED);
         this.failureDetector = failureDetector;
         this.timeoutMs = timeoutMs;
         this.nonblockingStores = nonblockingStores;
         this.query = query;
+        this.requiredTotal = requiredTotal;
+        this.requiredPerKey = requiredPerKey;
     }
 
     public void execute(final Pipeline pipeline) {
@@ -67,7 +79,7 @@ public class PerformParallelGetAllKeysRequests extends
             logger.trace("Attempting " + attempts + " " + pipeline.getOperation().getSimpleName()
                          + " operations in parallel");
 
-        final Map<Node, Set<ByteArray>> responses = new MapMaker().makeMap();
+        final Map<Node, Response<RangeQuery, Object>> responsesByNode = new MapMaker().makeMap();
 
         for(final Node node: pipelineData.getNodes()) {
             NonblockingStoreCallback callback = new NonblockingStoreCallback() {
@@ -78,8 +90,18 @@ public class PerformParallelGetAllKeysRequests extends
                                      + " response received (" + requestTime + " ms.) from node "
                                      + node.getId());
 
-                    responses.put(node, (Set<ByteArray>) result);
+                    Response<RangeQuery, Object> response = new Response<RangeQuery, Object>(node,
+                                                                                             query,
+                                                                                             result,
+                                                                                             requestTime);
+                    responsesByNode.put(node, response);
                     latch.countDown();
+
+                    // Note errors that come in after the pipeline has finished.
+                    // These will *not* get a chance to be called in the loop of
+                    // responses below.
+                    if(pipeline.isFinished() && response.getValue() instanceof Exception)
+                        handleResponseError(response, pipeline, failureDetector);
                 }
 
             };
@@ -89,8 +111,7 @@ public class PerformParallelGetAllKeysRequests extends
                              + " request on node " + node.getId());
 
             NonblockingStore store = nonblockingStores.get(node.getId());
-            store.submitGetAllKeysRequest(query, null, callback, timeoutMs); // TODO
-                                                                             // transforms?
+            store.submitGetAllKeysRequest(query, null, callback, timeoutMs);
         }
 
         try {
@@ -101,57 +122,40 @@ public class PerformParallelGetAllKeysRequests extends
         }
 
         // Merge results
-        // TODO this should be done on-the-fly to avoid storing all reponses
-        for(Map.Entry<Node, Set<ByteArray>> entry: responses.entrySet()) {
-            pipelineData.getResult().addAll(entry.getValue());
+        // TODO this should be done on-the-fly to avoid storing all responses in
+        // the caller machine
+        Multiset<ByteArray> responses = HashMultiset.create();
+        for(Response<RangeQuery, Object> response: responsesByNode.values()) {
+            if(response.getValue() instanceof Exception) {
+                if(handleResponseError(response, pipeline, failureDetector))
+                    return;
+            } else {
+                @SuppressWarnings("unchecked")
+                Set<ByteArray> keys = (Set<ByteArray>) response.getValue();
+                responses.addAll(keys);
+                pipelineData.incrementSuccesses();
+                failureDetector.recordSuccess(response.getNode(), response.getRequestTime());
+            }
         }
 
-        // for(Response<Iterable<ByteArray>, Object> response:
-        // responses.values()) {
-        // if(response.getValue() instanceof Exception) {
-        // if(handleResponseError(response, pipeline, failureDetector))
-        // return;
-        // } else {
-        // Map<ByteArray, List<Versioned<byte[]>>> values = (Map<ByteArray,
-        // List<Versioned<byte[]>>>) response.getValue();
-        //
-        // for(ByteArray key: response.getKey()) {
-        // MutableInt successCount = pipelineData.getSuccessCount(key);
-        // successCount.increment();
-        //
-        // List<Versioned<byte[]>> retrieved = values.get(key);
-        // /*
-        // * retrieved can be null if there are no values for the key
-        // * provided
-        // */
-        // if(retrieved != null) {
-        // List<Versioned<byte[]>> existing = pipelineData.getResult().get(key);
-        //
-        // if(existing == null)
-        // pipelineData.getResult().put(key, Lists.newArrayList(retrieved));
-        // else
-        // existing.addAll(retrieved);
-        // }
-        //
-        // HashSet<Integer> zoneResponses = null;
-        // if(pipelineData.getKeyToZoneResponse().containsKey(key)) {
-        // zoneResponses = pipelineData.getKeyToZoneResponse().get(key);
-        // } else {
-        // zoneResponses = new HashSet<Integer>();
-        // }
-        // zoneResponses.add(response.getNode().getZoneId());
-        // }
-        //
-        // pipelineData.getResponses()
-        // .add(new Response<Iterable<ByteArray>, Map<ByteArray,
-        // List<Versioned<byte[]>>>>(response.getNode(),
-        // response.getKey(),
-        // values,
-        // response.getRequestTime()));
-        // failureDetector.recordSuccess(response.getNode(),
-        // response.getRequestTime());
-        // }
-        // }
+        if(pipelineData.getSuccesses() < requiredTotal) {
+            pipelineData.setFatalError(new InsufficientOperationalNodesException(requiredTotal
+                                                                                         + " "
+                                                                                         + pipeline.getOperation()
+                                                                                                   .getSimpleName()
+                                                                                         + "s required, but "
+                                                                                         + pipelineData.getSuccesses()
+                                                                                         + " succeeded",
+                                                                                 pipelineData.getFailures()));
+            pipeline.addEvent(Event.ERROR);
+            return;
+        }
+
+        // filter by number of responses, to discard partial deletes
+        for(Entry<ByteArray> entry: responses.entrySet()) {
+            if(entry.getCount() >= requiredPerKey)
+                pipelineData.getResult().add(entry.getElement());
+        }
 
         pipeline.addEvent(completeEvent);
     }

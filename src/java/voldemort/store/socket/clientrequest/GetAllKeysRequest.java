@@ -11,11 +11,11 @@ import voldemort.secondary.RangeQuery;
 import voldemort.server.RequestRoutingType;
 import voldemort.utils.ByteArray;
 
-public class GetKeysBySecondaryRequest extends AbstractStoreClientRequest<Set<ByteArray>> {
+public class GetAllKeysRequest extends AbstractStoreClientRequest<Set<ByteArray>> {
 
     private final RangeQuery query;
 
-    public GetKeysBySecondaryRequest(String storeName,
+    public GetAllKeysRequest(String storeName,
                                      RequestFormat requestFormat,
                                      RequestRoutingType requestRoutingType,
                                      RangeQuery query) {
@@ -24,17 +24,17 @@ public class GetKeysBySecondaryRequest extends AbstractStoreClientRequest<Set<By
     }
 
     public boolean isCompleteResponse(ByteBuffer buffer) {
-        return requestFormat.isCompleteGetKeysBySecondaryResponse(buffer);
+        return requestFormat.isCompleteGetAllKeysResponse(buffer);
     }
 
     @Override
     protected void formatRequestInternal(DataOutputStream outputStream) throws IOException {
-        requestFormat.writeGetKeysBySecondary(outputStream, storeName, query, requestRoutingType);
+        requestFormat.writeGetAllKeysRequest(outputStream, storeName, query, requestRoutingType);
     }
 
     @Override
     protected Set<ByteArray> parseResponseInternal(DataInputStream inputStream) throws IOException {
-        return requestFormat.readGetKeysBySecondaryResponse(inputStream);
+        return requestFormat.readGetAllKeysResponse(inputStream);
     }
 
 }

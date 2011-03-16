@@ -56,8 +56,11 @@ import voldemort.versioning.Version;
 import voldemort.versioning.Versioned;
 
 import com.google.common.base.Function;
+import com.google.common.collect.HashMultiset;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multiset;
+import com.google.common.collect.Multiset.Entry;
 import com.google.common.collect.Sets;
 
 /**
@@ -296,11 +299,7 @@ public class ThreadPoolRoutedStore extends RoutedStore {
 
         List<Future<GetAllResult>> futures;
         try {
-            // TODO What to do about timeouts? They should be longer as getAll
-            // is likely to
-            // take longer. At the moment, it's just timeoutMs * 3, but should
-            // this be based on the number of the keys?
-            futures = executor.invokeAll(callables, timeoutMs * 3, TimeUnit.MILLISECONDS);
+            futures = executor.invokeAll(callables, getLongTimeout(), TimeUnit.MILLISECONDS);
         } catch(InterruptedException e) {
             throw new InsufficientOperationalNodesException("getAll operation interrupted.", e);
         }
@@ -929,8 +928,18 @@ public class ThreadPoolRoutedStore extends RoutedStore {
         List<R> execute(Store<ByteArray, byte[], byte[]> store, ByteArray key, byte[] transforms);
     }
 
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
-        Set<ByteArray> result = Sets.newHashSet();
+    // TODO What to do about timeouts? They should be longer as
+    // getAllKeys is likely to
+    // take longer. At the moment, it's just timeoutMs * 3, but should
+    // this be based on the number of the keys?
+    private long getLongTimeout() {
+        return timeoutMs * 3;
+    }
+
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
+        int nodesCanFail = storeDef.getReplicationFactor() - storeDef.getRequiredReads();
+        int requiredTotal = routingStrategy.getNodes().size() - nodesCanFail;
+        int requiredPerKey = storeDef.getRequiredReads();
 
         List<Callable<GetAllKeysResult>> callables = Lists.newArrayList();
         for(Node node: routingStrategy.getNodes()) {
@@ -938,20 +947,24 @@ public class ThreadPoolRoutedStore extends RoutedStore {
                 callables.add(new GetAllKeysCallable(node, query));
         }
 
+        if(callables.size() < requiredTotal) {
+            throw new InsufficientOperationalNodesException(String.format("Not enough nodes to perform getAllKeys operation %s/%s",
+                                                                          callables.size(),
+                                                                          requiredTotal));
+        }
+
         // A list of thrown exceptions, indicating the number of failures
         List<Throwable> failures = Lists.newArrayList();
+        int successCount = 0;
 
         List<Future<GetAllKeysResult>> futures;
         try {
-            // TODO What to do about timeouts? They should be longer as
-            // getAllKeys
-            // is likely to
-            // take longer. At the moment, it's just timeoutMs * 3, but should
-            // this be based on the number of the keys?
-            futures = executor.invokeAll(callables, timeoutMs * 3, TimeUnit.MILLISECONDS);
+            futures = executor.invokeAll(callables, getLongTimeout(), TimeUnit.MILLISECONDS);
         } catch(InterruptedException e) {
             throw new InsufficientOperationalNodesException("getAllKeys operation interrupted.", e);
         }
+
+        Multiset<ByteArray> responses = HashMultiset.create();
         for(Future<GetAllKeysResult> f: futures) {
             if(f.isCancelled()) {
                 logger.warn("GetKeysBySecondary operation timed out after " + timeoutMs + " ms.");
@@ -966,7 +979,8 @@ public class ThreadPoolRoutedStore extends RoutedStore {
                     failures.add(getResult.exception);
                     continue;
                 }
-                result.addAll(getResult.retrieved);
+                responses.addAll(getResult.retrieved);
+                successCount++;
             } catch(InterruptedException e) {
                 throw new InsufficientOperationalNodesException("getAllKeys operation interrupted.",
                                                                 e);
@@ -981,8 +995,17 @@ public class ThreadPoolRoutedStore extends RoutedStore {
             }
         }
 
-        // TODO check number of failures and throw InsufficientOperationalNodes
-        // when needed
+        if(successCount < requiredTotal)
+            throw new InsufficientOperationalNodesException(requiredTotal + " reads required, but "
+                                                                    + successCount + " succeeded.",
+                                                            failures);
+
+        // filter by number of responses, to discard partial deletes
+        Set<ByteArray> result = Sets.newHashSet();
+        for(Entry<ByteArray> entry: responses.entrySet()) {
+            if(entry.getCount() >= requiredPerKey)
+                result.add(entry.getElement());
+        }
 
         return result;
     }
@@ -1002,7 +1025,7 @@ public class ThreadPoolRoutedStore extends RoutedStore {
             Throwable exception = null;
             long startNs = System.nanoTime();
             try {
-                retrieved = innerStores.get(node.getId()).getKeysBySecondary(query);
+                retrieved = innerStores.get(node.getId()).getAllKeys(query);
                 recordSuccess(node, startNs);
             } catch(UnreachableStoreException e) {
                 exception = e;

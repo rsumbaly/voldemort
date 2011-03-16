@@ -38,6 +38,7 @@
             <xs:element name="hint-preflist-size" type="xs:token" minOccurs="0" maxOccurs="1" />
 			<xs:element name="key-serializer" type="serializer" />
 			<xs:element name="value-serializer" type="serializer" />
+			<xs:element name="secondary-indexes" type="secondary-indexes" minOccurs="0" maxOccurs="1" />
 			<xs:element name="retention-days" type="xs:nonNegativeInteger"
 				minOccurs="0" maxOccurs="1" />
 			<xs:element name="retention-scan-throttle-rate" type="xs:nonNegativeInteger"
@@ -84,7 +85,25 @@
 			<xs:element name="type" type="xs:token" />
 			<xs:element name="schema-info" type="schema-info"
 				minOccurs="0" maxOccurs="255" />
-      <xs:element name="compression" type="compression" minOccurs="0" maxOccurs="1" />
+			<xs:element name="compression" type="compression" minOccurs="0" maxOccurs="1" />
+		</xs:sequence>
+	</xs:complexType>
+
+	<!-- A secondary index definition -->
+	<xs:complexType name="secondary-index">
+		<xs:sequence>
+			<xs:element name="name" type="xs:token" />
+			<xs:element name="extractor-type" type="xs:token" />
+			<xs:element name="extractor-info" type="xs:string" />
+			<xs:element name="serializer-type" type="xs:token" />
+			<xs:element name="schema-info" type="schema-info" minOccurs="0" maxOccurs="255" />
+		</xs:sequence>
+	</xs:complexType>
+
+	<!-- A set of secondary index definitions -->
+	<xs:complexType name="secondary-indexes">
+		<xs:sequence>
+			<xs:element name="secondary-index" type="secondary-index" minOccurs="1" maxOccurs="unbounded" />
 		</xs:sequence>
 	</xs:complexType>
 

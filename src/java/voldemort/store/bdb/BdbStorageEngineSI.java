@@ -97,7 +97,7 @@ public class BdbStorageEngineSI extends BdbStorageEngine {
     }
 
     @Override
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
         Database secDb = secDbsByField.get(query.getField());
         Cursor cursor = secDb.openCursor(null, null);
         Set<ByteArray> result = Sets.newHashSet();

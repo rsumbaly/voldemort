@@ -512,7 +512,7 @@ public class ReadOnlyStorageEngine implements StorageEngine<ByteArray, byte[], b
         return StoreUtils.getVersions(get(key, null));
     }
 
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
         throw new UnsupportedOperationException("No secondary index support.");
     }
 

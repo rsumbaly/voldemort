@@ -96,9 +96,9 @@ public class PausableStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
         return inner.getVersions(key);
     }
 
-    public Set<K> getKeysBySecondary(RangeQuery query) {
+    public Set<K> getAllKeys(RangeQuery query) {
         blockIfNecessary();
-        return inner.getKeysBySecondary(query);
+        return inner.getAllKeys(query);
     }
 
     public Object getCapability(StoreCapabilityType capability) {

@@ -288,7 +288,7 @@ public class InMemoryStorageEngine<K, V, T> implements StorageEngine<K, V, T> {
 
     }
 
-    public Set<K> getKeysBySecondary(RangeQuery query) {
+    public Set<K> getAllKeys(RangeQuery query) {
         throw new UnsupportedOperationException("No secondary index support.");
     }
 

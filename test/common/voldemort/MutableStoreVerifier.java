@@ -89,7 +89,7 @@ public class MutableStoreVerifier extends BasicStoreVerifier<ByteArray, byte[], 
                 public void put(ByteArray key, Versioned<byte[]> value, byte[] transforms)
                         throws VoldemortException {}
 
-                public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+                public Set<ByteArray> getAllKeys(RangeQuery query) {
                     return null;
                 }
 

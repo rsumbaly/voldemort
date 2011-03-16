@@ -395,7 +395,7 @@ public class MysqlStorageEngine implements StorageEngine<ByteArray, byte[], byte
         return StoreUtils.getVersions(get(key, null));
     }
 
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
         throw new UnsupportedOperationException("No secondary index support.");
     }
 

@@ -128,7 +128,7 @@ public class InMemoryStorageEngineSI extends InMemoryStorageEngine<ByteArray, by
     }
 
     @Override
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
         NavigableMap<ByteArray, Set<ByteArray>> index = secIndexes.get(query.getField());
 
         ByteArray start = new ByteArray((byte[]) query.getStart());

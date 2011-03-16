@@ -57,8 +57,8 @@ public class DelegatingStore<K, V, T> implements Store<K, V, T> {
         return innerStore.getAll(keys, transforms);
     }
 
-    public Set<K> getKeysBySecondary(RangeQuery query) {
-        return innerStore.getKeysBySecondary(query);
+    public Set<K> getAllKeys(RangeQuery query) {
+        return innerStore.getAllKeys(query);
     }
 
     public List<Versioned<V>> get(K key, T transform) throws VoldemortException {

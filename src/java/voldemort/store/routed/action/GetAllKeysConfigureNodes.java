@@ -16,8 +16,7 @@
 
 package voldemort.store.routed.action;
 
-import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 import voldemort.cluster.Zone;
 import voldemort.cluster.failuredetector.FailureDetector;
@@ -30,13 +29,11 @@ import voldemort.utils.ByteArray;
 import com.google.common.collect.Lists;
 
 public class GetAllKeysConfigureNodes extends
-        AbstractConfigureNodes<ByteArray, List<ByteArray>, GetAllKeysPipelineData> {
+        AbstractConfigureNodes<ByteArray, Set<ByteArray>, GetAllKeysPipelineData> {
 
     private final int preferred;
 
     private final Zone clientZone;
-
-    private final Map<ByteArray, byte[]> transforms;
 
     public GetAllKeysConfigureNodes(GetAllKeysPipelineData pipelineData,
                                     Event completeEvent,
@@ -44,11 +41,9 @@ public class GetAllKeysConfigureNodes extends
                                     int preferred,
                                     int required,
                                     RoutingStrategy routingStrategy,
-                                    Map<ByteArray, byte[]> transforms,
                                     Zone clientZone) {
         super(pipelineData, completeEvent, failureDetector, required, routingStrategy);
         this.preferred = preferred;
-        this.transforms = transforms;
         this.clientZone = clientZone;
     }
 

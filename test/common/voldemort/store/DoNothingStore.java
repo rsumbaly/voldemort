@@ -75,7 +75,7 @@ public class DoNothingStore<K, V, T> implements Store<K, V, T> {
         return null;
     }
 
-    public Set<K> getKeysBySecondary(RangeQuery query) {
+    public Set<K> getAllKeys(RangeQuery query) {
         return null;
     }
 

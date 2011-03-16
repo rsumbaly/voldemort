@@ -62,7 +62,15 @@ public class DefaultSecondaryIndexProcessor implements SecondaryIndexProcessor {
     }
 
     public byte[] serializeValue(String fieldName, Object value) {
-        return getSerializer(fieldName).toBytes(value);
+        Serializer<Object> serializer = getSerializer(fieldName);
+        if(serializer == null)
+            throw new IllegalArgumentException("Secondary index field not found: " + fieldName);
+        try {
+            return serializer.toBytes(value);
+        } catch(Exception ex) {
+            throw new IllegalArgumentException("Could not interpret value " + value + " for field "
+                                               + fieldName, ex);
+        }
     }
 
     public List<String> getSecondaryFields() {

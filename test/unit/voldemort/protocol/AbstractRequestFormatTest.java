@@ -287,17 +287,17 @@ public abstract class AbstractRequestFormatTest extends TestCase implements Byte
         return new DelegatingStore<ByteArray, byte[], byte[]>(store) {
 
             @Override
-            public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+            public Set<ByteArray> getAllKeys(RangeQuery query) {
                 try {
                     ByteArrayOutputStream getAllKeysRequest = new ByteArrayOutputStream();
-                    clientWireFormat.writeGetKeysBySecondary(new DataOutputStream(getAllKeysRequest),
+                    clientWireFormat.writeGetAllKeysRequest(new DataOutputStream(getAllKeysRequest),
                                                              storeName,
                                                              query,
                                                              RequestRoutingType.NORMAL);
                     ByteArrayOutputStream getAllKeysResponse = new ByteArrayOutputStream();
                     serverWireFormat.handleRequest(inputStream(getAllKeysRequest),
                                                    new DataOutputStream(getAllKeysResponse));
-                    return clientWireFormat.readGetKeysBySecondaryResponse(inputStream(getAllKeysResponse));
+                    return clientWireFormat.readGetAllKeysResponse(inputStream(getAllKeysResponse));
                 } catch(Exception ex) {
                     throw new RuntimeException(ex);
                 }

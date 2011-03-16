@@ -51,7 +51,7 @@ public class FailingReadsStore<K, V, T> implements Store<K, V, T> {
         engine.put(key, value, transforms);
     }
 
-    public Set<K> getKeysBySecondary(RangeQuery query) {
+    public Set<K> getAllKeys(RangeQuery query) {
         throw new VoldemortException("Operation failed");
     }
 

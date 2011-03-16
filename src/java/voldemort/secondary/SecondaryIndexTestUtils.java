@@ -1,6 +1,7 @@
 package voldemort.secondary;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Arrays;
@@ -9,7 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import junit.framework.Assert;
 import voldemort.TestUtils;
+import voldemort.client.StoreClient;
 import voldemort.serialization.DefaultSerializerFactory;
 import voldemort.serialization.Serializer;
 import voldemort.serialization.SerializerDefinition;
@@ -90,14 +93,14 @@ public class SecondaryIndexTestUtils {
 
     /**
      * Checks the given query return the given keys on the inner store. See
-     * {@link Store#getKeysBySecondary(RangeQuery)}
+     * {@link Store#getAllKeys(RangeQuery)}
      */
     public void assertQueryReturns(RangeQuery query, String... keys) {
         Set<String> got = Sets.newHashSet();
-        for(ByteArray val: getStore().getKeysBySecondary(query)) {
+        for(ByteArray val: getStore().getAllKeys(query)) {
             got.add(new String(val.get()));
         }
-        Set<String> expected = Sets.newHashSet(Arrays.asList(keys));
+        Set<String> expected = Sets.newHashSet(keys);
         assertEquals(expected, got);
     }
 
@@ -125,9 +128,10 @@ public class SecondaryIndexTestUtils {
 
     private void removeKey(String... keys) {
         for(String key: keys) {
-            List<Versioned<byte[]>> value = getStore().get(testKey(key), null);
-            assertEquals(1, value.size());
-            assertTrue(getStore().delete(testKey(key), value.get(0).getVersion()));
+            List<Versioned<byte[]>> values = getStore().get(testKey(key), null);
+            assertFalse(values.isEmpty());
+            getStore().delete(testKey(key), values.get(0).getVersion());
+            assertTrue(getStore().get(testKey(key), null).isEmpty());
         }
     }
 
@@ -185,6 +189,44 @@ public class SecondaryIndexTestUtils {
         return testSerializedValue(new String(TestUtils.randomBytes(size)),
                                    (byte) TestUtils.SEEDED_RANDOM.nextInt() % 128,
                                    new Date(TestUtils.SEEDED_RANDOM.nextInt()));
+    }
+
+    /** Check basic secondary index functionality works for a {@link StoreClient} */
+    public static void clientGetAllKeysTest(StoreClient<String, Map<String, ?>> client) {
+        client.put("k1", testValue("data1", 2, new Date(100)));
+        client.put("k2", testValue("data2", 1, new Date(101)));
+        client.put("k3", testValue("data3", 0, new Date(102)));
+
+        assertGetAllKeys(client, "status", (byte) 1, (byte) 5, "k1", "k2");
+        assertGetAllKeys(client, "lastmod", new Date(101), new Date(200), "k2", "k3");
+        assertGetAllKeys(client, "lastmod", 100, 100, "k1"); // automatic date
+                                                             // transformation
+
+        // test field not found handling
+        try {
+            assertGetAllKeys(client, "inexistentField", 100, 100, "k1");
+            Assert.fail();
+        } catch(IllegalArgumentException ex) {
+            assertTrue(ex.getMessage().contains("field not found"));
+        }
+
+        // test wrong field type handling
+        try {
+            // integer cannot be coerced to byte (at least by json serializer)
+            assertGetAllKeys(client, "status", 1, 1, "k2");
+            Assert.fail();
+        } catch(IllegalArgumentException ex) {
+            assertTrue(ex.getMessage().contains("Could not interpret"));
+        }
+    }
+
+    private static void assertGetAllKeys(StoreClient<String, Map<String, ?>> client,
+                                         String field,
+                                         Object from,
+                                         Object to,
+                                         String... expectedKeys) {
+        assertEquals(Sets.newHashSet(expectedKeys),
+                     client.getAllKeys(new RangeQuery(field, from, to)));
     }
 
 }

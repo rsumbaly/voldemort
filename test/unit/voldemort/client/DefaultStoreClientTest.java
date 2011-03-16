@@ -1,11 +1,9 @@
 package voldemort.client;
 
 import java.util.Arrays;
-import java.util.Date;
 import java.util.Map;
 
 import junit.framework.TestCase;
-import voldemort.secondary.RangeQuery;
 import voldemort.secondary.SecondaryIndexTestUtils;
 import voldemort.serialization.Serializer;
 import voldemort.serialization.StringSerializer;
@@ -15,8 +13,6 @@ import voldemort.utils.Time;
 import voldemort.versioning.ObsoleteVersionException;
 import voldemort.versioning.VectorClock;
 import voldemort.versioning.Versioned;
-
-import com.google.common.collect.Sets;
 
 public class DefaultStoreClientTest extends TestCase {
 
@@ -151,7 +147,7 @@ public class DefaultStoreClientTest extends TestCase {
         assertEquals(0, result.size());
     }
 
-    private StoreClient<String, Object> setUpSecondary() {
+    private StoreClient<String, Map<String, ?>> setUpSecondary() {
         return new MockStoreClientFactory(new StringSerializer(),
                                           SecondaryIndexTestUtils.VALUE_SERIALIZER,
                                           null,
@@ -168,16 +164,7 @@ public class DefaultStoreClientTest extends TestCase {
      * in {@link AbstractByteArrayStoreTest#testSecondaryIndex()}
      */
     public void testGetAllKeys() {
-        StoreClient<String, Object> client = setUpSecondary();
-        client.put("k1", SecondaryIndexTestUtils.testValue("data1", 2, new Date(100)));
-        client.put("k2", SecondaryIndexTestUtils.testValue("data2", 1, new Date(101)));
-        client.put("k3", SecondaryIndexTestUtils.testValue("data3", 0, new Date(102)));
-
-        assertEquals(Sets.newHashSet("k2", "k1"),
-                     client.getKeysBySecondary(new RangeQuery("status", (byte) 1, (byte) 5)));
-        assertEquals(Sets.newHashSet("k3", "k2"),
-                     client.getKeysBySecondary(new RangeQuery("lastmod",
-                                                              new Date(101),
-                                                              new Date(200))));
+        SecondaryIndexTestUtils.clientGetAllKeysTest(setUpSecondary());
     }
+
 }

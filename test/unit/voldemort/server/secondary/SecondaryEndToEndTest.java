@@ -1,10 +1,6 @@
-package voldemort.server;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+package voldemort.server.secondary;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -26,18 +22,21 @@ import voldemort.client.StoreClient;
 import voldemort.client.StoreClientFactory;
 import voldemort.cluster.Cluster;
 import voldemort.cluster.Node;
+import voldemort.secondary.SecondaryIndexTestUtils;
+import voldemort.server.VoldemortServer;
 import voldemort.store.socket.SocketStoreFactory;
 import voldemort.store.socket.clientrequest.ClientRequestExecutorPool;
-import voldemort.versioning.Versioned;
+
+import com.google.common.collect.Lists;
 
 /**
- * Provides an unmocked end to end unit test of a Voldemort cluster.
- * 
+ * Provides an unmocked end to end unit test of a Voldemort cluster, with BDB
+ * and secondary index enabled.
  */
 @RunWith(Parameterized.class)
-public class EndToEndTest {
+public class SecondaryEndToEndTest {
 
-    private static final String STORE_NAME = "test-readrepair-memory";
+    private static final String STORE_NAME = "test-secondary-index";
     private static final String STORES_XML = "test/common/voldemort/config/stores.xml";
     private final SocketStoreFactory socketStoreFactory = new ClientRequestExecutorPool(2,
                                                                                         10000,
@@ -45,11 +44,9 @@ public class EndToEndTest {
                                                                                         32 * 1024);
     private final boolean useNio;
 
-    private List<VoldemortServer> servers;
-    private Cluster cluster;
-    private StoreClient<String, String> storeClient;
+    private StoreClient<String, Map<String, ?>> storeClient;
 
-    public EndToEndTest(boolean useNio) {
+    public SecondaryEndToEndTest(boolean useNio) {
         this.useNio = useNio;
     }
 
@@ -60,9 +57,11 @@ public class EndToEndTest {
 
     @Before
     public void setUp() throws IOException {
-        cluster = ServerTestUtils.getLocalCluster(2, new int[][] { { 0, 2, 4, 6 }, { 1, 3, 5, 7 } });
-        servers = new ArrayList<VoldemortServer>();
-        for(int i = 0; i < 2; i++) {
+        final int nodes = 3;
+        Cluster cluster = ServerTestUtils.getLocalCluster(nodes, new int[][] { { 0, 3, 6, 9 },
+                { 1, 4, 7, 10 }, { 2, 5, 8, 11 } });
+        List<VoldemortServer> servers = Lists.newArrayList();
+        for(int i = 0; i < nodes; i++) {
             servers.add(ServerTestUtils.startVoldemortServer(socketStoreFactory,
                                                              ServerTestUtils.createServerConfig(useNio,
                                                                                                 i,
@@ -85,31 +84,11 @@ public class EndToEndTest {
     }
 
     /**
-     * Test the basic get/getAll/put/delete functionality.
+     * Test the secondary index functionality
      */
     @Test
     public void testSanity() {
-        storeClient.put("Belarus", "Minsk");
-        storeClient.put("Russia", "Moscow");
-        storeClient.put("Ukraine", "Kiev");
-        storeClient.put("Kazakhstan", "Almaty");
-
-        Versioned<String> v1 = storeClient.get("Belarus");
-        assertEquals("get/put work as expected", "Minsk", v1.getValue());
-
-        storeClient.put("Kazakhstan", "Astana");
-        Versioned<String> v2 = storeClient.get("Kazakhstan");
-        assertEquals("clobbering a value works as expected, we have read-your-writes consistency",
-                     "Astana",
-                     v2.getValue());
-
-        Map<String, Versioned<String>> capitals = storeClient.getAll(Arrays.asList("Russia",
-                                                                                   "Ukraine"));
-
-        assertEquals("getAll works as expected", "Moscow", capitals.get("Russia").getValue());
-        assertEquals("getAll works as expected", "Kiev", capitals.get("Ukraine").getValue());
-
-        storeClient.delete("Ukraine");
-        assertNull("delete works as expected", storeClient.get("Ukraine"));
+        SecondaryIndexTestUtils.clientGetAllKeysTest(storeClient);
     }
+
 }

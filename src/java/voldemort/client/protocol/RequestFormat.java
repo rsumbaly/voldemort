@@ -70,14 +70,28 @@ public interface RequestFormat {
     public Map<ByteArray, List<Versioned<byte[]>>> readGetAllResponse(DataInputStream stream)
             throws IOException;
 
-    public void writeGetKeysBySecondary(DataOutputStream output,
-                                        String storeName,
-                                        RangeQuery query,
-                                        RequestRoutingType routingType) throws IOException;
+    /**
+     * Write a request to retrieve all the keys that correspond to the given
+     * range query, using a secondary index.
+     */
+    public void writeGetAllKeysRequest(DataOutputStream output,
+                                       String storeName,
+                                       RangeQuery query,
+                                       RequestRoutingType routingType) throws IOException;
 
-    public boolean isCompleteGetKeysBySecondaryResponse(ByteBuffer buffer);
+    /**
+     * @return true if the response to
+     *         {@link #writeGetAllKeysRequest(DataOutputStream, String, RangeQuery, RequestRoutingType)}
+     *         is complete.
+     */
+    public boolean isCompleteGetAllKeysResponse(ByteBuffer buffer);
 
-    public Set<ByteArray> readGetKeysBySecondaryResponse(DataInputStream stream) throws IOException;
+    /**
+     * Read the response to
+     * {@link #writeGetAllKeysRequest(DataOutputStream, String, RangeQuery, RequestRoutingType)}
+     * , a set of all the matching keys.
+     */
+    public Set<ByteArray> readGetAllKeysResponse(DataInputStream stream) throws IOException;
 
     public void writePutRequest(DataOutputStream output,
                                 String storeName,

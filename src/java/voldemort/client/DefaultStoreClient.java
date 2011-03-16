@@ -334,13 +334,13 @@ public class DefaultStoreClient<K, V> implements StoreClient<K, V> {
 
     }
 
-    public Set<K> getKeysBySecondary(RangeQuery query) {
+    public Set<K> getAllKeys(RangeQuery query) {
         for(int attempts = 0;; attempts++) {
             if(attempts >= this.metadataRefreshAttempts)
                 throw new VoldemortException(this.metadataRefreshAttempts
                                              + " metadata refresh attempts failed.");
             try {
-                return store.getKeysBySecondary(query);
+                return store.getAllKeys(query);
             } catch(InvalidMetadataException e) {
                 bootStrap();
             }

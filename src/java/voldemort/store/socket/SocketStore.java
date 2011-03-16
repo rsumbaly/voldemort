@@ -46,7 +46,7 @@ import voldemort.store.socket.clientrequest.ClientRequestExecutorPool;
 import voldemort.store.socket.clientrequest.DeleteClientRequest;
 import voldemort.store.socket.clientrequest.GetAllClientRequest;
 import voldemort.store.socket.clientrequest.GetClientRequest;
-import voldemort.store.socket.clientrequest.GetKeysBySecondaryRequest;
+import voldemort.store.socket.clientrequest.GetAllKeysRequest;
 import voldemort.store.socket.clientrequest.GetVersionsClientRequest;
 import voldemort.store.socket.clientrequest.PutClientRequest;
 import voldemort.utils.ByteArray;
@@ -136,7 +136,7 @@ public class SocketStore implements Store<ByteArray, byte[], byte[]>, Nonblockin
                                         NonblockingStoreCallback callback,
                                         long timeoutMs) {
         // StoreUtils.assertValidKeys(keys);
-        GetKeysBySecondaryRequest clientRequest = new GetKeysBySecondaryRequest(storeName,
+        GetAllKeysRequest clientRequest = new GetAllKeysRequest(storeName,
                                                                                 requestFormat,
                                                                                 requestRoutingType,
                                                                                 query);
@@ -201,8 +201,8 @@ public class SocketStore implements Store<ByteArray, byte[], byte[]>, Nonblockin
         return request(clientRequest, "getAll");
     }
 
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
-        GetKeysBySecondaryRequest clientRequest = new GetKeysBySecondaryRequest(storeName,
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
+        GetAllKeysRequest clientRequest = new GetAllKeysRequest(storeName,
                                                                                 requestFormat,
                                                                                 requestRoutingType,
                                                                                 query);

@@ -565,7 +565,7 @@ public class PipelineRoutedStore extends RoutedStore {
         super.close();
     }
 
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
         GetAllKeysPipelineData pipelineData = new GetAllKeysPipelineData();
         Pipeline pipeline = new Pipeline(Operation.GET_ALL, timeoutMs, TimeUnit.MILLISECONDS);
 
@@ -576,14 +576,19 @@ public class PipelineRoutedStore extends RoutedStore {
                                                              storeDef.getPreferredReads(),
                                                              storeDef.getRequiredReads(),
                                                              routingStrategy,
-                                                             null,
                                                              clientZone));
+
+        // Number of nodes we tolerate to fail
+        int nodesCanFail = storeDef.getReplicationFactor() - storeDef.getRequiredReads();
+        int requiredTotal = routingStrategy.getNodes().size() - nodesCanFail;
         pipeline.addEventAction(Event.CONFIGURED,
                                 new PerformParallelGetAllKeysRequests(pipelineData,
                                                                       failureDetector,
                                                                       timeoutMs,
                                                                       nonblockingStores,
-                                                                      query));
+                                                                      query,
+                                                                      requiredTotal,
+                                                                      storeDef.getRequiredReads()));
 
         pipeline.addEvent(Event.STARTED);
         pipeline.execute();
@@ -593,5 +598,4 @@ public class PipelineRoutedStore extends RoutedStore {
 
         return pipelineData.getResult();
     }
-
 }

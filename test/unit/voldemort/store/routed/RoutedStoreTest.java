@@ -170,7 +170,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                         failing,
                         0,
                         RoutingStrategyType.TO_ALL_STRATEGY,
-                        new VoldemortException());
+                        VoldemortException.class);
     }
 
     private RoutedStore getStore(Cluster cluster,
@@ -180,7 +180,27 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                  int failing,
                                  int sleepy,
                                  String strategy,
-                                 VoldemortException e) throws Exception {
+                                 Class<? extends VoldemortException> e) throws Exception {
+        return getStore(cluster,
+                        reads,
+                        writes,
+                        reads + writes,
+                        threads,
+                        failing,
+                        sleepy,
+                        strategy,
+                        e);
+    }
+
+    private RoutedStore getStore(Cluster cluster,
+                                 int reads,
+                                 int writes,
+                                 int replicationFactor,
+                                 int threads,
+                                 int failing,
+                                 int sleepy,
+                                 String strategy,
+                                 Class<? extends VoldemortException> e) throws Exception {
         Map<Integer, Store<ByteArray, byte[], byte[]>> subStores = Maps.newHashMap();
         int count = 0;
         for(Node n: cluster.getNodes()) {
@@ -208,7 +228,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
 
         setFailureDetector(subStores);
         StoreDefinition storeDef = ServerTestUtils.getStoreDef("test",
-                                                               reads + writes,
+                                                               replicationFactor,
                                                                reads,
                                                                reads,
                                                                writes,
@@ -234,7 +254,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                  String strategy,
                                  long sleepMs,
                                  long timeOutMs,
-                                 VoldemortException e) throws Exception {
+                                 Class<? extends VoldemortException> e) throws Exception {
         Map<Integer, Store<ByteArray, byte[], byte[]>> subStores = Maps.newHashMap();
         int count = 0;
         for(Node n: cluster.getNodes()) {
@@ -354,7 +374,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                            failures,
                                            0,
                                            RoutingStrategyType.TO_ALL_STRATEGY,
-                                           new UnreachableStoreException("no go"));
+                                           UnreachableStoreException.class);
         try {
             routedStore.put(aKey, versioned, aTransform);
             fail("Put succeeded with too few operational nodes.");
@@ -426,7 +446,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                                        RoutingStrategyType.ZONE_STRATEGY,
                                                        81,
                                                        60,
-                                                       new VoldemortException());
+                                                       VoldemortException.class);
 
         start = System.nanoTime();
         try {
@@ -486,7 +506,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                                        RoutingStrategyType.ZONE_STRATEGY,
                                                        81,
                                                        1000,
-                                                       new VoldemortException());
+                                                       VoldemortException.class);
 
         start = System.nanoTime();
 
@@ -547,7 +567,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                                        RoutingStrategyType.ZONE_STRATEGY,
                                                        81,
                                                        1000,
-                                                       new VoldemortException());
+                                                       VoldemortException.class);
 
         start = System.nanoTime();
         try {
@@ -600,7 +620,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                                        RoutingStrategyType.ZONE_STRATEGY,
                                                        81,
                                                        1000,
-                                                       new VoldemortException());
+                                                       VoldemortException.class);
 
         try {
             s4.put(new ByteArray("test".getBytes()), new Versioned<byte[]>(new byte[] { 1 }), null);
@@ -652,7 +672,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                                        9,
                                                        0,
                                                        RoutingStrategyType.TO_ALL_STRATEGY,
-                                                       new VoldemortException());
+                                                       VoldemortException.class);
         try {
             s1.put(aKey, new Versioned<byte[]>(aValue), aTransform);
             fail("Failure is expected");
@@ -669,7 +689,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                                        9,
                                                        0,
                                                        RoutingStrategyType.TO_ALL_STRATEGY,
-                                                       new UnreachableStoreException("no go"));
+                                                       UnreachableStoreException.class);
         try {
             s2.put(aKey, new Versioned<byte[]>(aValue), aTransform);
             fail("Failure is expected");
@@ -687,7 +707,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                       9,
                       0,
                       RoutingStrategyType.TO_ALL_STRATEGY,
-                      new VoldemortException());
+                      VoldemortException.class);
         try {
             s1.get(aKey, aTransform);
             fail("Failure is expected");
@@ -704,7 +724,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                       9,
                       0,
                       RoutingStrategyType.TO_ALL_STRATEGY,
-                      new UnreachableStoreException("no go"));
+                      UnreachableStoreException.class);
         try {
             s2.get(aKey, aTransform);
             fail("Failure is expected");
@@ -722,7 +742,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                       9,
                       0,
                       RoutingStrategyType.TO_ALL_STRATEGY,
-                      new VoldemortException());
+                      VoldemortException.class);
         try {
             s1.delete(aKey, new VectorClock());
             fail("Failure is expected");
@@ -739,7 +759,7 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                       9,
                       0,
                       RoutingStrategyType.TO_ALL_STRATEGY,
-                      new UnreachableStoreException("no go"));
+                      UnreachableStoreException.class);
         try {
             s2.delete(aKey, new VectorClock());
             fail("Failure is expected");
@@ -1224,4 +1244,37 @@ public class RoutedStoreTest extends AbstractByteArrayStoreTest {
                                                                                  .setStoreVerifier(create(subStores));
         failureDetector = create(failureDetectorConfig, false);
     }
+
+    @Test
+    public void testSecondaryIndexWithFailure() throws Exception {
+        // N=3 R=2 W=2 and 1 failing node, everything should run
+        store = getStore(cluster,
+                         2,
+                         2,
+                         3,
+                         3,
+                         1,
+                         0,
+                         RoutingStrategyType.CONSISTENT_STRATEGY,
+                         UnreachableStoreException.class);
+        testSecondaryIndex();
+
+        // N=3 R=2 W=2 and 2 failing nodes, we shouldn't be able to run
+        store = getStore(cluster,
+                         2,
+                         2,
+                         3,
+                         3,
+                         2,
+                         0,
+                         RoutingStrategyType.CONSISTENT_STRATEGY,
+                         UnreachableStoreException.class);
+        try {
+            testSecondaryIndex();
+            fail();
+        } catch(InsufficientOperationalNodesException ex) {
+
+        }
+    }
+
 }

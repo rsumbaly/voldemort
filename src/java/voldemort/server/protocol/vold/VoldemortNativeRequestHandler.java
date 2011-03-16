@@ -311,7 +311,7 @@ public class VoldemortNativeRequestHandler extends AbstractRequestHandler implem
         // execute the operation
         Set<ByteArray> results = null;
         try {
-            results = store.getKeysBySecondary(query);
+            results = store.getAllKeys(query);
             outputStream.writeShort(0);
         } catch(VoldemortException e) {
             writeException(outputStream, e);

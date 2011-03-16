@@ -244,18 +244,18 @@ public class ProtoBuffClientRequestFormat implements RequestFormat {
         return buffer.remaining() == size;
     }
 
-    public void writeGetKeysBySecondary(DataOutputStream output,
+    public void writeGetAllKeysRequest(DataOutputStream output,
                                         String storeName,
                                         RangeQuery query,
                                         RequestRoutingType routingType) throws IOException {
         throw new UnsupportedOperationException("No secondary index support.");
     }
 
-    public boolean isCompleteGetKeysBySecondaryResponse(ByteBuffer buffer) {
+    public boolean isCompleteGetAllKeysResponse(ByteBuffer buffer) {
         throw new UnsupportedOperationException("No secondary index support.");
     }
 
-    public Set<ByteArray> readGetKeysBySecondaryResponse(DataInputStream stream) throws IOException {
+    public Set<ByteArray> readGetAllKeysResponse(DataInputStream stream) throws IOException {
         throw new UnsupportedOperationException("No secondary index support.");
     }
 

@@ -167,8 +167,8 @@ public class SerializingStore<K, V, T> implements Store<K, V, T> {
         return store.getVersions(keyToBytes(key));
     }
 
-    public Set<K> getKeysBySecondary(RangeQuery query) {
-        return Maps.uniqueIndex(store.getKeysBySecondary(serializeQuery(query)),
+    public Set<K> getAllKeys(RangeQuery query) {
+        return Maps.uniqueIndex(store.getAllKeys(serializeQuery(query)),
                                 new Function<ByteArray, K>() {
 
                                     public K apply(ByteArray key) {

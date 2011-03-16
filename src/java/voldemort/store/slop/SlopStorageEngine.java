@@ -103,8 +103,8 @@ public class SlopStorageEngine implements StorageEngine<ByteArray, byte[], byte[
         return slopEngine.getAll(keys, transforms);
     }
 
-    public Set<ByteArray> getKeysBySecondary(RangeQuery query) {
-        return slopEngine.getKeysBySecondary(query);
+    public Set<ByteArray> getAllKeys(RangeQuery query) {
+        return slopEngine.getAllKeys(query);
     }
 
     public void put(ByteArray key, Versioned<byte[]> value, byte[] transforms)

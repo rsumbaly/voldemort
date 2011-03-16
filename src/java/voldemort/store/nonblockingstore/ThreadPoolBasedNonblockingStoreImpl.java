@@ -180,7 +180,7 @@ public class ThreadPoolBasedNonblockingStoreImpl implements NonblockingStore {
         submit(new StoreRequest<Set<ByteArray>>() {
 
             public Set<ByteArray> request(Store<ByteArray, byte[], byte[]> store) {
-                return innerStore.getKeysBySecondary(query);
+                return innerStore.getAllKeys(query);
             }
         }, callback, timeoutMs, "get all keys");
     }

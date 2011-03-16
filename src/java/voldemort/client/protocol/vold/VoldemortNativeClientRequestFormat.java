@@ -303,7 +303,7 @@ public class VoldemortNativeClientRequestFormat implements RequestFormat {
                         break;
 
                     case VoldemortOpCode.GET_KEYS_BY_SEC_OP_CODE:
-                        readGetKeysBySecondaryResponse(inputStream);
+                        readGetAllKeysResponse(inputStream);
                         break;
                 }
             } catch(VoldemortException e) {
@@ -325,7 +325,7 @@ public class VoldemortNativeClientRequestFormat implements RequestFormat {
         }
     }
 
-    public void writeGetKeysBySecondary(DataOutputStream outputStream,
+    public void writeGetAllKeysRequest(DataOutputStream outputStream,
                                         String storeName,
                                         RangeQuery query,
                                         RequestRoutingType routingType) throws IOException {
@@ -341,11 +341,11 @@ public class VoldemortNativeClientRequestFormat implements RequestFormat {
         query.serialize(outputStream);
     }
 
-    public boolean isCompleteGetKeysBySecondaryResponse(ByteBuffer buffer) {
+    public boolean isCompleteGetAllKeysResponse(ByteBuffer buffer) {
         return isCompleteResponse(buffer, VoldemortOpCode.GET_KEYS_BY_SEC_OP_CODE);
     }
 
-    public Set<ByteArray> readGetKeysBySecondaryResponse(DataInputStream stream) throws IOException {
+    public Set<ByteArray> readGetAllKeysResponse(DataInputStream stream) throws IOException {
         checkException(stream);
         int numResults = stream.readInt();
         Set<ByteArray> results = Sets.newHashSet();

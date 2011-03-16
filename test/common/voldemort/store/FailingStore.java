@@ -34,23 +34,31 @@ import voldemort.versioning.Versioned;
 public class FailingStore<K, V, T> implements Store<K, V, T> {
 
     private final String name;
-    private final VoldemortException exception;
+    private final Class<? extends VoldemortException> exceptionClass;
 
     public FailingStore(String name) {
-        this(name, new VoldemortException("Operation failed!"));
+        this(name, VoldemortException.class);
     }
 
-    public FailingStore(String name, VoldemortException e) {
+    /**
+     * Create a new failing store that throws a new exception of the given class
+     * for every operation
+     * 
+     * @param name Store name
+     * @param exceptionClass Class to throw for every operation. Needs to have a
+     *        String constructor.
+     */
+    public FailingStore(String name, Class<? extends VoldemortException> exceptionClass) {
         this.name = Utils.notNull(name);
-        this.exception = e;
+        this.exceptionClass = exceptionClass;
     }
 
     public void close() throws VoldemortException {
-        throw exception;
+        throw getException();
     }
 
     public List<Versioned<V>> get(K key, T transforms) throws VoldemortException {
-        throw exception;
+        throw getException();
     }
 
     public String getName() {
@@ -58,27 +66,36 @@ public class FailingStore<K, V, T> implements Store<K, V, T> {
     }
 
     public boolean delete(K key, Version value) throws VoldemortException {
-        throw exception;
+        throw getException();
     }
 
     public void put(K key, Versioned<V> value, T transforms) throws VoldemortException {
-        throw exception;
+        throw getException();
     }
 
     public Map<K, List<Versioned<V>>> getAll(Iterable<K> keys, Map<K, T> transforms)
             throws VoldemortException {
-        throw exception;
+        throw getException();
     }
 
     public java.util.List<Version> getVersions(K key) {
-        throw exception;
+        throw getException();
     }
 
-    public Set<K> getKeysBySecondary(RangeQuery query) {
-        throw exception;
+    public Set<K> getAllKeys(RangeQuery query) {
+        throw getException();
     }
 
     public Object getCapability(StoreCapabilityType capability) {
         throw new NoSuchCapabilityException(capability, getName());
+    }
+
+    private VoldemortException getException() {
+        try {
+            return exceptionClass.getConstructor(String.class)
+                                 .newInstance("Simulated operation failure");
+        } catch(Exception e) {
+            return new VoldemortException("Could not simulate failure", e);
+        }
     }
 }

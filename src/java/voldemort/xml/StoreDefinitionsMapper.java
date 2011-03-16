@@ -32,6 +32,7 @@ import javax.xml.validation.Schema;
 import javax.xml.validation.SchemaFactory;
 import javax.xml.validation.Validator;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.jdom.Document;
 import org.jdom.Element;
 import org.jdom.JDOMException;
@@ -51,6 +52,8 @@ import voldemort.store.StoreDefinitionBuilder;
 import voldemort.store.StoreUtils;
 import voldemort.store.slop.strategy.HintedHandoffStrategyType;
 import voldemort.store.views.ViewStorageConfiguration;
+
+import com.google.common.collect.Lists;
 
 /**
  * Parses a stores.xml file
@@ -92,6 +95,7 @@ public class StoreDefinitionsMapper {
     public final static String VIEW_SERIALIZER_FACTORY_ELMT = "view-serializer-factory";
     private final static String STORE_VERSION_ATTR = "version";
 
+    public final static String STORE_SEC_INDEXES_ELMT = "secondary-indexes";
     public final static String STORE_SEC_INDEX_ELMT = "secondary-index";
     public final static String STORE_SEC_INDEX_NAME_ELMT = "name";
     public final static String STORE_SEC_INDEX_EXTRACTOR_TYPE_ELMT = "extractor-type";
@@ -267,22 +271,22 @@ public class StoreDefinitionsMapper {
     }
 
     private List<SecondaryIndexDefinition> readSecondaryIndexDefs(Element store) {
-        List<SecondaryIndexDefinition> result = new ArrayList<SecondaryIndexDefinition>();
-        for(Object secIdx: store.getChildren(STORE_SEC_INDEX_ELMT)) {
-            Element secIdxElmt = (Element) secIdx;
-            String name = secIdxElmt.getChild(STORE_SEC_INDEX_NAME_ELMT).getText();
-            String extractorType = secIdxElmt.getChild(STORE_SEC_INDEX_EXTRACTOR_TYPE_ELMT)
-                                             .getText();
-            String extractorInfo = secIdxElmt.getChild(STORE_SEC_INDEX_EXTRACTOR_INFO_ELMT)
-                                             .getText();
-            String serializerType = secIdxElmt.getChild(STORE_SEC_INDEX_SERIALIZER_TYPE_ELMT)
-                                              .getText();
-            String schemaInfo = secIdxElmt.getChild(STORE_SEC_INDEX_SCHEMA_INFO_ELMT).getText();
-            result.add(new SecondaryIndexDefinition(name,
-                                                    extractorType,
-                                                    extractorInfo,
-                                                    serializerType,
-                                                    schemaInfo));
+        List<SecondaryIndexDefinition> result = Lists.newArrayList();
+        Element secIndexes = store.getChild(STORE_SEC_INDEXES_ELMT);
+        if(secIndexes != null) {
+            for(Object secIdx: secIndexes.getChildren(STORE_SEC_INDEX_ELMT)) {
+                Element secIdxElmt = (Element) secIdx;
+                String name = secIdxElmt.getChildText(STORE_SEC_INDEX_NAME_ELMT);
+                String extractorType = secIdxElmt.getChildText(STORE_SEC_INDEX_EXTRACTOR_TYPE_ELMT);
+                String extractorInfo = secIdxElmt.getChildText(STORE_SEC_INDEX_EXTRACTOR_INFO_ELMT);
+                String serializerType = secIdxElmt.getChildText(STORE_SEC_INDEX_SERIALIZER_TYPE_ELMT);
+                String schemaInfo = secIdxElmt.getChildText(STORE_SEC_INDEX_SCHEMA_INFO_ELMT);
+                result.add(new SecondaryIndexDefinition(name,
+                                                        extractorType,
+                                                        extractorInfo,
+                                                        serializerType,
+                                                        schemaInfo));
+            }
         }
         return result;
     }
@@ -448,6 +452,9 @@ public class StoreDefinitionsMapper {
         if(storeDefinition.hasRetentionScanThrottleRate())
             store.addContent(new Element(STORE_RETENTION_SCAN_THROTTLE_RATE_ELMT).setText(Integer.toString(storeDefinition.getRetentionScanThrottleRate())));
 
+        if(!CollectionUtils.isEmpty(storeDefinition.getSecondaryIndexDefinitions()))
+            addSecondaryIndexes(store, storeDefinition.getSecondaryIndexDefinitions());
+
         return store;
     }
 
@@ -514,6 +521,20 @@ public class StoreDefinitionsMapper {
             }
             parent.addContent(compressionElmt);
         }
+    }
+
+    private void addSecondaryIndexes(Element parent, List<SecondaryIndexDefinition> secIdxList) {
+        Element list = new Element(STORE_SEC_INDEXES_ELMT);
+        for(SecondaryIndexDefinition def: secIdxList) {
+            Element secIdx = new Element(STORE_SEC_INDEX_ELMT);
+            secIdx.addContent(new Element(STORE_SEC_INDEX_NAME_ELMT).setText(def.getName()));
+            secIdx.addContent(new Element(STORE_SEC_INDEX_EXTRACTOR_TYPE_ELMT).setText(def.getExtractorType()));
+            secIdx.addContent(new Element(STORE_SEC_INDEX_EXTRACTOR_INFO_ELMT).setText(def.getExtractorInfo()));
+            secIdx.addContent(new Element(STORE_SEC_INDEX_SERIALIZER_TYPE_ELMT).setText(def.getSerializerType()));
+            secIdx.addContent(new Element(STORE_SEC_INDEX_SCHEMA_INFO_ELMT).setText(def.getSchemaInfo()));
+            list.addContent(secIdx);
+        }
+        parent.addContent(list);
     }
 
     public Integer getChildWithDefault(Element elmt, String property, Integer defaultVal) {

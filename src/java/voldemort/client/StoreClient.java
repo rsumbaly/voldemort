@@ -100,7 +100,7 @@ public interface StoreClient<K, V> {
      * @param query query that defines the range of secondary values to look up
      * @return Set of matching keys
      */
-    public Set<K> getKeysBySecondary(RangeQuery query);
+    public Set<K> getAllKeys(RangeQuery query);
 
     /**
      * Like {@link voldemort.client.StoreClient#getAll(Iterable) getAll}, except
