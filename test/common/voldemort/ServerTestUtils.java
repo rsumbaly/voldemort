@@ -74,6 +74,7 @@ import voldemort.xml.ClusterMapper;
 import voldemort.xml.StoreDefinitionsMapper;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 /**
  * Helper functions for testing with real server implementations
@@ -284,7 +285,7 @@ public class ServerTestUtils {
         if(3 * numberOfNodes != ports.length)
             throw new IllegalArgumentException(3 * numberOfNodes + " ports required but only "
                                                + ports.length + " given.");
-        List<Node> nodes = new ArrayList<Node>();
+        List<Node> nodes = Lists.newArrayList();
         for(int i = 0; i < numberOfNodes; i++) {
             List<Integer> partitions = ImmutableList.of(i);
             if(null != partitionMap) {

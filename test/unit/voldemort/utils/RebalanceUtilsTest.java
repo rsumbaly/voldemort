@@ -34,6 +34,10 @@ import voldemort.cluster.Node;
 import voldemort.store.StoreDefinition;
 import voldemort.xml.StoreDefinitionsMapper;
 
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+
 public class RebalanceUtilsTest extends TestCase {
 
     private static String storeDefFile = "test/common/voldemort/config/stores.xml";
@@ -52,6 +56,14 @@ public class RebalanceUtilsTest extends TestCase {
 
         try {
             storeDefList = new StoreDefinitionsMapper().readStoreList(new FileReader(new File(storeDefFile)));
+            // keep stores with replication factor < 3
+            storeDefList = Lists.newArrayList(Iterables.filter(storeDefList,
+                                                               new Predicate<StoreDefinition>() {
+
+                                                                   public boolean apply(StoreDefinition sd) {
+                                                                       return sd.getReplicationFactor() < 3;
+                                                                   }
+                                                               }));
         } catch(FileNotFoundException e) {
             throw new RuntimeException("Failed to find storeDefFile:" + storeDefFile, e);
         }
@@ -68,24 +80,24 @@ public class RebalanceUtilsTest extends TestCase {
         assertEquals("There should have exactly one rebalancing node",
                      1,
                      rebalancePlan.getRebalancingTaskQueue().size());
-        for(RebalanceNodePlan rebalanceNodeInfo: rebalancePlan.getRebalancingTaskQueue()) {
-            assertEquals("rebalanceInfo should have exactly one item",
-                         1,
-                         rebalanceNodeInfo.getRebalanceTaskList().size());
-            RebalancePartitionsInfo expected = new RebalancePartitionsInfo(rebalanceNodeInfo.getStealerNode(),
-                                                                           0,
-                                                                           Arrays.asList(2, 3),
-                                                                           Arrays.asList(2, 3),
-                                                                           Arrays.asList(2, 3),
-                                                                           RebalanceUtils.getStoreNames(storeDefList),
-                                                                           new HashMap<String, String>(),
-                                                                           new HashMap<String, String>(),
-                                                                           0);
+        RebalanceNodePlan rebalanceNodeInfo = rebalancePlan.getRebalancingTaskQueue().poll();
+        assertEquals("rebalanceInfo should have exactly one item",
+                     1,
+                     rebalanceNodeInfo.getRebalanceTaskList().size());
+        RebalancePartitionsInfo expected = new RebalancePartitionsInfo(rebalanceNodeInfo.getStealerNode(),
+                                                                       0,
+                                                                       Arrays.asList(2, 3),
+                                                                       Arrays.asList(2, 3),
+                                                                       Arrays.asList(2, 3),
+                                                                       RebalanceUtils.getStoreNames(storeDefList),
+                                                                       new HashMap<String, String>(),
+                                                                       new HashMap<String, String>(),
+                                                                       0);
 
-            assertEquals("rebalanceStealInfo should match",
-                         expected.toJsonString(),
-                         rebalanceNodeInfo.getRebalanceTaskList().get(0).toJsonString());
-        }
+        assertEquals("rebalanceStealInfo should match",
+                     expected.toJsonString(),
+                     rebalanceNodeInfo.getRebalanceTaskList().get(0).toJsonString());
+
     }
 
     public void testRebalancePlanWithReplicationChanges() {

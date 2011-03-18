@@ -27,8 +27,8 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Map.Entry;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import junit.framework.TestCase;
@@ -352,8 +352,9 @@ public class AdminServiceBasicTest extends TestCase {
         store = getStore(0, testStoreName);
         for(Entry<ByteArray, byte[]> entry: entrySet.entrySet()) {
             if(isKeyPartition(entry.getKey(), 0, testStoreName, deletePartitionsList)) {
-                assertEquals("deleted partitions should be missing.", 0, store.get(entry.getKey(),
-                                                                                   null).size());
+                assertEquals("deleted partitions should be missing.",
+                             0,
+                             store.get(entry.getKey(), null).size());
             }
         }
     }
@@ -658,8 +659,9 @@ public class AdminServiceBasicTest extends TestCase {
             Store<ByteArray, byte[], byte[]> store = getStore(0, nextSlop.getStoreName());
 
             if(nextSlop.getOperation().equals(Slop.Operation.PUT)) {
-                assertNotSame("entry should be present at store", 0, store.get(nextSlop.getKey(),
-                                                                               null).size());
+                assertNotSame("entry should be present at store",
+                              0,
+                              store.get(nextSlop.getKey(), null).size());
                 assertEquals("entry value should match",
                              new String(nextSlop.getValue()),
                              new String(store.get(nextSlop.getKey(), null).get(0).getValue()));

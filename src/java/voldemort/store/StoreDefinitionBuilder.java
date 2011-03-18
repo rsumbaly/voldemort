@@ -1,5 +1,6 @@
 package voldemort.store;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
@@ -39,7 +40,7 @@ public class StoreDefinitionBuilder {
     private String serializerFactory = null;
     private HintedHandoffStrategyType hintedHandoffStrategy = null;
     private Integer hintPrefListSize = null;
-    private List<SecondaryIndexDefinition> secondaryIndexDefinitions = null;
+    private List<SecondaryIndexDefinition> secondaryIndexDefinitions = Collections.emptyList();
 
     public String getName() {
         return Utils.notNull(name);
