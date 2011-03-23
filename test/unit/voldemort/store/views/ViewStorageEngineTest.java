@@ -1,14 +1,27 @@
 package voldemort.store.views;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
 import junit.framework.TestCase;
+
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+import org.junit.runners.Parameterized.Parameters;
+
+import voldemort.serialization.CompressingSerializer;
 import voldemort.serialization.Serializer;
 import voldemort.serialization.StringSerializer;
 import voldemort.serialization.json.JsonTypeSerializer;
 import voldemort.store.Store;
+import voldemort.store.compress.CompressingStore;
+import voldemort.store.compress.CompressionStrategy;
+import voldemort.store.compress.LzfCompressionStrategy;
+import voldemort.store.compress.NoopCompressionStrategy;
 import voldemort.store.memory.InMemoryStorageEngine;
 import voldemort.store.serialized.SerializingStore;
 import voldemort.utils.ByteArray;
@@ -24,27 +37,61 @@ import com.google.common.collect.ImmutableMap;
  * 
  * 
  */
+@RunWith(Parameterized.class)
 public class ViewStorageEngineTest extends TestCase {
 
     private AddStrViewTrans transform = new AddStrViewTrans("42");
-    private InMemoryStorageEngine<ByteArray, byte[], byte[]> targetRaw1 = new InMemoryStorageEngine<ByteArray, byte[], byte[]>("target1");
-    private Store<String, String, String> target1 = SerializingStore.wrap(targetRaw1,
-                                                                          new StringSerializer(),
-                                                                          new StringSerializer(),
-                                                                          new StringSerializer());
-    private Store<String, String, String> valView = getEngine1(transform);
+    private InMemoryStorageEngine<ByteArray, byte[], byte[]> targetRaw1;
+    private Store<String, String, String> target1;
+    private Store<String, String, String> valView;
+
     private Serializer<Integer> keySer = new IntegerSerializer();
     private Serializer<List<Integer>> valueSer = new IntegerListSerializer();
     private Serializer<List<Integer>> transSer = new IntegerListSerializer();
 
-    private InMemoryStorageEngine<ByteArray, byte[], byte[]> targetRaw2 = new InMemoryStorageEngine<ByteArray, byte[], byte[]>("target2");
+    private InMemoryStorageEngine<ByteArray, byte[], byte[]> targetRaw2;
+    private Store<Integer, List<Integer>, List<Integer>> target2;
+    private Store<Integer, List<Integer>, List<Integer>> view;
 
-    private Store<Integer, List<Integer>, List<Integer>> target2 = SerializingStore.wrap(targetRaw2,
-                                                                                         keySer,
-                                                                                         valueSer,
-                                                                                         transSer);
-    private Store<Integer, List<Integer>, List<Integer>> view = getEngine2(new RangeFilterView());
+    private static final CompressionStrategy COMPRESSION_STRATEGY = new LzfCompressionStrategy();
+    private static final StringSerializer STR_SER = new StringSerializer();
 
+    public ViewStorageEngineTest(boolean compress) {
+        targetRaw1 = new InMemoryStorageEngine<ByteArray, byte[], byte[]>("target1");
+        valView = getEngine1(transform, compress);
+
+        target1 = SerializingStore.wrap(compressingStore(targetRaw1, compress),
+                                        STR_SER,
+                                        STR_SER,
+                                        STR_SER);
+
+        targetRaw2 = new InMemoryStorageEngine<ByteArray, byte[], byte[]>("target2");
+        view = getEngine2(new RangeFilterView(), compress);
+        target2 = SerializingStore.wrap(compressingStore(targetRaw2, compress),
+                                        keySer,
+                                        valueSer,
+                                        transSer);
+    }
+
+    private Store<ByteArray, byte[], byte[]> compressingStore(Store<ByteArray, byte[], byte[]> target,
+                                                              boolean compress) {
+        if(!compress)
+            return target;
+        return new CompressingStore(target, new NoopCompressionStrategy(), COMPRESSION_STRATEGY);
+    }
+
+    private <T> Serializer<T> compressingSerializer(Serializer<T> target, boolean compress) {
+        if(!compress)
+            return target;
+        return new CompressingSerializer<T>(COMPRESSION_STRATEGY, target);
+    }
+
+    @Parameters
+    public static Collection<Object[]> configs() {
+        return Arrays.asList(new Object[][] { { false }, { true } });
+    }
+
+    @Before
     @Override
     public void setUp() {
         target1.put("hello", Versioned.value("world"), null);
@@ -54,29 +101,34 @@ public class ViewStorageEngineTest extends TestCase {
         target2.put(100, Versioned.value(Arrays.asList(values2)), null);
     }
 
-    public Store<String, String, String> getEngine1(View<?, ?, ?, ?> valTrans) {
-        Serializer<String> s = new StringSerializer();
+    private Store<String, String, String> getEngine1(View<?, ?, ?, ?> valTrans, boolean compress) {
         return SerializingStore.wrap(new ViewStorageEngine("test",
                                                            targetRaw1,
-                                                           s,
-                                                           s,
-                                                           s,
-                                                           s,
-                                                           null,
-                                                           valTrans), s, s, s);
+                                                           STR_SER,
+                                                           STR_SER,
+                                                           STR_SER,
+                                                           compressingSerializer(STR_SER, compress),
+                                                           valTrans),
+                                     STR_SER,
+                                     STR_SER,
+                                     STR_SER);
     }
 
-    public Store<Integer, List<Integer>, List<Integer>> getEngine2(View<?, ?, ?, ?> view) {
+    private Store<Integer, List<Integer>, List<Integer>> getEngine2(View<?, ?, ?, ?> view,
+                                                                    boolean compress) {
         return SerializingStore.wrap(new ViewStorageEngine("transTest",
                                                            targetRaw2,
                                                            valueSer,
                                                            transSer,
                                                            keySer,
-                                                           valueSer,
-                                                           null,
-                                                           view), keySer, valueSer, transSer);
+                                                           compressingSerializer(valueSer, compress),
+                                                           view),
+                                     keySer,
+                                     valueSer,
+                                     transSer);
     }
 
+    @Test
     public void testGetWithValueTransform() {
         assertEquals("View should add 42", "world42", valView.get("hello", "concat")
                                                              .get(0)
@@ -85,6 +137,7 @@ public class ViewStorageEngineTest extends TestCase {
                                                                       .size());
     }
 
+    @Test
     public void testGetAll() {
         target1.put("a", Versioned.value("a"), null);
         target1.put("b", Versioned.value("b"), null);
@@ -99,11 +152,13 @@ public class ViewStorageEngineTest extends TestCase {
         assertEquals("b42", found.get("b").get(0).getValue());
     }
 
+    @Test
     public void testPut() {
         valView.put("abc", Versioned.value("cde"), null);
         assertEquals("c", target1.get("abc", null).get(0).getValue());
     }
 
+    @Test
     public void testGetWithTransforms() {
         Integer[] filter2 = { 5, 8 };
         assertEquals(4, view.get(1, Arrays.asList(filter2)).get(0).getValue().size());
@@ -113,6 +168,7 @@ public class ViewStorageEngineTest extends TestCase {
 
     }
 
+    @Test
     public void testPutWithTransforms() {
         Integer[] values1 = { 9, 90, 10, 15, 25, 106 };
         Integer[] filter1 = { 1, 10 };

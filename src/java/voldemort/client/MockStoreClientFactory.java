@@ -196,7 +196,6 @@ public class MockStoreClientFactory implements StoreClientFactory {
                                                                      : serializerFactory.getSerializer(targetDef.getKeySerializer()),
                                            this.valueSerializer != null ? this.valueSerializer
                                                                        : serializerFactory.getSerializer(targetDef.getValueSerializer()),
-                                           null,
                                            ViewStorageConfiguration.loadTransformation(storeDef.getValueTransformation()));
         }
 

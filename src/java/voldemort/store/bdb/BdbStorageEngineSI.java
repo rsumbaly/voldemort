@@ -8,6 +8,7 @@ import java.util.Set;
 
 import org.apache.log4j.Logger;
 
+import voldemort.annotations.Experimental;
 import voldemort.secondary.RangeQuery;
 import voldemort.secondary.SecondaryIndexProcessor;
 import voldemort.store.NoSuchCapabilityException;
@@ -36,6 +37,7 @@ import com.sleepycat.je.Transaction;
  * crate one primary BDB database per secondary index, and keep it in synch
  * manually.
  */
+@Experimental
 public class BdbStorageEngineSI extends BdbStorageEngine {
 
     private static final Logger logger = Logger.getLogger(BdbStorageEngine.class);

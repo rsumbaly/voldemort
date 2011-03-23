@@ -5,6 +5,7 @@ import java.util.List;
 import voldemort.secondary.SecondaryIndexProcessor;
 import voldemort.secondary.SecondaryIndexProcessorFactory;
 import voldemort.secondary.SecondaryIndexSupported;
+import voldemort.serialization.CompressingSerializerFactory;
 import voldemort.serialization.DefaultSerializerFactory;
 import voldemort.serialization.SerializerFactory;
 import voldemort.server.VoldemortConfig;
@@ -38,10 +39,10 @@ public class BdbStorageConfigurationSI extends BdbStorageConfiguration {
                                                                    boolean cursorPreload) {
         StoreDefinition storeDef = StoreUtils.getStoreDef(storeDefs, storeName);
         String factoryName = storeDef.getSerializerFactory();
-        SerializerFactory factory = factoryName == null ? new DefaultSerializerFactory()
-                                                       : ViewStorageConfiguration.loadSerializerFactory(factoryName);
+        SerializerFactory serFactory = factoryName == null ? new DefaultSerializerFactory()
+                                                          : ViewStorageConfiguration.loadSerializerFactory(factoryName);
 
-        SecondaryIndexProcessor secIdxProcessor = SecondaryIndexProcessorFactory.getProcessor(factory,
+        SecondaryIndexProcessor secIdxProcessor = SecondaryIndexProcessorFactory.getProcessor(new CompressingSerializerFactory(serFactory),
                                                                                               storeDef.getSecondaryIndexDefinitions(),
                                                                                               storeDef.getValueSerializer());
 

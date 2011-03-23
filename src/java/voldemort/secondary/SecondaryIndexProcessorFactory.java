@@ -13,8 +13,8 @@ import com.google.common.collect.Maps;
 public class SecondaryIndexProcessorFactory {
 
     /**
-     * Creates a new {@link SecondaryIndexProcessor} based on the seconday index
-     * definitions and value serializer definition.
+     * Creates a new {@link SecondaryIndexProcessor} based on the secondary
+     * index definitions and value serializer definition.
      * Actual serializers are created with the given serializerFactory.
      */
     public static SecondaryIndexProcessor getProcessor(SerializerFactory serializerFactory,

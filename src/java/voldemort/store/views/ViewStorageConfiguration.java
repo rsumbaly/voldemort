@@ -3,6 +3,7 @@ package voldemort.store.views;
 import java.util.List;
 
 import voldemort.VoldemortException;
+import voldemort.serialization.CompressingSerializerFactory;
 import voldemort.serialization.DefaultSerializerFactory;
 import voldemort.serialization.SerializerFactory;
 import voldemort.server.StoreRepository;
@@ -11,8 +12,6 @@ import voldemort.store.StorageConfiguration;
 import voldemort.store.StorageEngine;
 import voldemort.store.StoreDefinition;
 import voldemort.store.StoreUtils;
-import voldemort.store.compress.CompressionStrategy;
-import voldemort.store.compress.CompressionStrategyFactory;
 import voldemort.utils.ByteArray;
 import voldemort.utils.ReflectUtils;
 import voldemort.utils.Utils;
@@ -49,12 +48,6 @@ public class ViewStorageConfiguration implements StorageConfiguration {
         else
             factory = loadSerializerFactory(factoryName);
 
-        CompressionStrategy valueCompressionStrategy = null;
-        if(targetDef.getValueSerializer().hasCompression()) {
-            valueCompressionStrategy = new CompressionStrategyFactory().get(targetDef.getValueSerializer()
-                                                                                     .getCompression());
-        }
-
         View<?, ?, ?, ?> view = loadTransformation(def.getValueTransformation());
 
         return new ViewStorageEngine(name,
@@ -63,8 +56,7 @@ public class ViewStorageConfiguration implements StorageConfiguration {
                                      def.getTransformsSerializer() != null ? factory.getSerializer(def.getTransformsSerializer())
                                                                           : null,
                                      factory.getSerializer(targetDef.getKeySerializer()),
-                                     factory.getSerializer(targetDef.getValueSerializer()),
-                                     valueCompressionStrategy,
+                                     new CompressingSerializerFactory(factory).getSerializer(targetDef.getValueSerializer()),
                                      view);
     }
 

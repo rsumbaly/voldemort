@@ -1,7 +1,5 @@
 package voldemort.store.views;
 
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -14,7 +12,6 @@ import voldemort.store.StorageEngine;
 import voldemort.store.Store;
 import voldemort.store.StoreCapabilityType;
 import voldemort.store.StoreUtils;
-import voldemort.store.compress.CompressionStrategy;
 import voldemort.store.serialized.SerializingStore;
 import voldemort.utils.ByteArray;
 import voldemort.utils.ClosableIterator;
@@ -24,6 +21,7 @@ import voldemort.versioning.Version;
 import voldemort.versioning.Versioned;
 
 import com.google.common.collect.AbstractIterator;
+import com.google.common.collect.Lists;
 
 /**
  * Views are transformations of other stores
@@ -41,7 +39,6 @@ public class ViewStorageEngine implements StorageEngine<ByteArray, byte[], byte[
     private final Serializer<Object> targetKeySerializer;
     private final Serializer<Object> targetValSerializer;
     private final View<Object, Object, Object, Object> view;
-    private final CompressionStrategy valueCompressionStrategy;
 
     @SuppressWarnings("unchecked")
     public ViewStorageEngine(String name,
@@ -50,7 +47,6 @@ public class ViewStorageEngine implements StorageEngine<ByteArray, byte[], byte[
                              Serializer<?> transformSerializer,
                              Serializer<?> targetKeySerializer,
                              Serializer<?> targetValSerializer,
-                             CompressionStrategy valueCompressionStrategy,
                              View<?, ?, ?, ?> valueTrans) {
         this.name = name;
         this.target = Utils.notNull(target);
@@ -63,46 +59,8 @@ public class ViewStorageEngine implements StorageEngine<ByteArray, byte[], byte[
         this.targetKeySerializer = (Serializer<Object>) targetKeySerializer;
         this.targetValSerializer = (Serializer<Object>) targetValSerializer;
         this.view = (View<Object, Object, Object, Object>) valueTrans;
-        this.valueCompressionStrategy = valueCompressionStrategy;
         if(valueTrans == null)
             throw new IllegalArgumentException("View without either a key transformation or a value transformation.");
-    }
-
-    private List<Versioned<byte[]>> inflateValues(List<Versioned<byte[]>> result) {
-        List<Versioned<byte[]>> inflated = new ArrayList<Versioned<byte[]>>(result.size());
-        for(Versioned<byte[]> item: result) {
-            inflated.add(inflateValue(item));
-        }
-        return inflated;
-    }
-
-    private List<Versioned<byte[]>> deflateValues(List<Versioned<byte[]>> values) {
-        List<Versioned<byte[]>> deflated = new ArrayList<Versioned<byte[]>>(values.size());
-        for(Versioned<byte[]> item: values) {
-            deflated.add(deflateValue(item));
-        }
-        return deflated;
-    }
-
-    private Versioned<byte[]> deflateValue(Versioned<byte[]> versioned) throws VoldemortException {
-        byte[] deflatedData = null;
-        try {
-            deflatedData = valueCompressionStrategy.deflate(versioned.getValue());
-        } catch(IOException e) {
-            throw new VoldemortException(e);
-        }
-
-        return new Versioned<byte[]>(deflatedData, versioned.getVersion());
-    }
-
-    private Versioned<byte[]> inflateValue(Versioned<byte[]> versioned) throws VoldemortException {
-        byte[] inflatedData = null;
-        try {
-            inflatedData = valueCompressionStrategy.inflate(versioned.getValue());
-        } catch(IOException e) {
-            throw new VoldemortException(e);
-        }
-        return new Versioned<byte[]>(inflatedData, versioned.getVersion());
     }
 
     public boolean delete(ByteArray key, Version version) throws VoldemortException {
@@ -112,18 +70,12 @@ public class ViewStorageEngine implements StorageEngine<ByteArray, byte[], byte[
     public List<Versioned<byte[]>> get(ByteArray key, byte[] transforms) throws VoldemortException {
         List<Versioned<byte[]>> values = target.get(key, null);
 
-        List<Versioned<byte[]>> results = new ArrayList<Versioned<byte[]>>();
-
-        if(valueCompressionStrategy != null)
-            values = inflateValues(values);
+        List<Versioned<byte[]>> results = Lists.newArrayList();
 
         for(Versioned<byte[]> v: values) {
             results.add(new Versioned<byte[]>(valueToViewSchema(key, v.getValue(), transforms),
                                               v.getVersion()));
         }
-
-        if(valueCompressionStrategy != null)
-            results = deflateValues(results);
 
         return results;
     }
@@ -144,14 +96,10 @@ public class ViewStorageEngine implements StorageEngine<ByteArray, byte[], byte[
 
     public void put(ByteArray key, Versioned<byte[]> value, byte[] transforms)
             throws VoldemortException {
-        if(valueCompressionStrategy != null)
-            value = inflateValue(value);
         Versioned<byte[]> result = Versioned.value(valueFromViewSchema(key,
                                                                        value.getValue(),
                                                                        transforms),
                                                    value.getVersion());
-        if(valueCompressionStrategy != null)
-            result = deflateValue(result);
         target.put(key, result, null);
     }
 

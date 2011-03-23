@@ -392,7 +392,6 @@ public class Benchmark {
                                                new StringSerializer(),
                                                serializer,
                                                new StringSerializer(),
-                                               null,
                                                BenchmarkViews.loadTransformation(benchmarkProps.getString(VIEW_CLASS)
                                                                                                .trim()));
             }
@@ -649,9 +648,8 @@ public class Benchmark {
                 mainProps.put(REQUEST_FILE, (String) options.valueOf(REQUEST_FILE));
                 mainProps.put(RECORD_SELECTION, FILE_RECORD_SELECTION);
             } else {
-                mainProps.put(RECORD_SELECTION, CmdUtils.valueOf(options,
-                                                                 RECORD_SELECTION,
-                                                                 UNIFORM_RECORD_SELECTION));
+                mainProps.put(RECORD_SELECTION,
+                              CmdUtils.valueOf(options, RECORD_SELECTION, UNIFORM_RECORD_SELECTION));
 
                 if(options.has(RECORD_COUNT)) {
                     mainProps.put(RECORD_COUNT, (Integer) options.valueOf(RECORD_COUNT));
@@ -687,9 +685,8 @@ public class Benchmark {
             mainProps.put(PIPELINE_ROUTED_STORE, getCmdBoolean(options, PIPELINE_ROUTED_STORE));
             mainProps.put(CLIENT_ZONE_ID, CmdUtils.valueOf(options, CLIENT_ZONE_ID, -1));
             mainProps.put(SELECTORS, CmdUtils.valueOf(options, SELECTORS, 4));
-            mainProps.put(SOCKET_BUFFER_SIZE, CmdUtils.valueOf(options,
-                                                               SOCKET_BUFFER_SIZE,
-                                                               4 * 1024));
+            mainProps.put(SOCKET_BUFFER_SIZE,
+                          CmdUtils.valueOf(options, SOCKET_BUFFER_SIZE, 4 * 1024));
             mainProps.put(START_KEY_INDEX, CmdUtils.valueOf(options, START_KEY_INDEX, 0));
             mainProps.put(VALUE_SIZE, CmdUtils.valueOf(options, VALUE_SIZE, 1024));
             mainProps.put(ITERATIONS, CmdUtils.valueOf(options, ITERATIONS, 1));

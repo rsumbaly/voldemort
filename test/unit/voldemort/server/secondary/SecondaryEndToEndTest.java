@@ -37,6 +37,7 @@ import com.google.common.collect.Lists;
 public class SecondaryEndToEndTest {
 
     private static final String STORE_NAME = "test-secondary-index";
+    private static final String STORE_NAME_WITH_COMPRESSION = "test-secondary-index-with-compression";
     private static final String STORES_XML = "test/common/voldemort/config/stores.xml";
     private final SocketStoreFactory socketStoreFactory = new ClientRequestExecutorPool(2,
                                                                                         10000,
@@ -44,7 +45,7 @@ public class SecondaryEndToEndTest {
                                                                                         32 * 1024);
     private final boolean useNio;
 
-    private StoreClient<String, Map<String, ?>> storeClient;
+    private StoreClientFactory storeClientFactory;
 
     public SecondaryEndToEndTest(boolean useNio) {
         this.useNio = useNio;
@@ -74,8 +75,7 @@ public class SecondaryEndToEndTest {
         }
         Node node = cluster.getNodeById(0);
         String bootstrapUrl = "tcp://" + node.getHost() + ":" + node.getSocketPort();
-        StoreClientFactory storeClientFactory = new SocketStoreClientFactory(new ClientConfig().setBootstrapUrls(bootstrapUrl));
-        storeClient = storeClientFactory.getStoreClient(STORE_NAME);
+        storeClientFactory = new SocketStoreClientFactory(new ClientConfig().setBootstrapUrls(bootstrapUrl));
     }
 
     @After
@@ -83,12 +83,24 @@ public class SecondaryEndToEndTest {
         socketStoreFactory.close();
     }
 
+    private StoreClient<String, Map<String, ?>> getStoreClient(String storeName) {
+        return storeClientFactory.getStoreClient(storeName);
+    }
+
     /**
      * Test the secondary index functionality
      */
     @Test
     public void testSanity() {
-        SecondaryIndexTestUtils.clientGetAllKeysTest(storeClient);
+        SecondaryIndexTestUtils.clientGetAllKeysTest(getStoreClient(STORE_NAME));
+    }
+
+    /**
+     * Test the secondary index functionality with value compression enabled
+     */
+    @Test
+    public void testSanityWithCompression() {
+        SecondaryIndexTestUtils.clientGetAllKeysTest(getStoreClient(STORE_NAME_WITH_COMPRESSION));
     }
 
 }
