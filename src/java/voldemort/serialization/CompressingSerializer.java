@@ -4,6 +4,10 @@ import java.io.IOException;
 
 import voldemort.store.compress.CompressionStrategy;
 
+/**
+ * Serializer wrapper that applies the given {@link CompressionStrategy} to
+ * every transformation.
+ */
 public class CompressingSerializer<T> implements Serializer<T> {
 
     private final CompressionStrategy strategy;
