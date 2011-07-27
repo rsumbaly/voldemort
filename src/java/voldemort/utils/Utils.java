@@ -31,9 +31,6 @@ import java.util.regex.Pattern;
 
 import voldemort.VoldemortException;
 
-import com.sun.jna.Library;
-import com.sun.jna.Native;
-
 /**
  * Helper functions FTW!
  * 
@@ -116,32 +113,6 @@ public class Utils {
                 }
             }
         }
-    }
-
-    /**
-     * Create a symbolic link to an existing file. Also deletes the existing
-     * symbolic link if it exists
-     * 
-     * @param filePath Path of the file for whom to create the symbolic link
-     * @param symLinkPath Path of the symbolic link
-     */
-    public static void symlink(String filePath, String symLinkPath) {
-        File file = new File(filePath);
-        File symLink = new File(symLinkPath);
-        symLink.delete();
-
-        if(!file.exists())
-            throw new VoldemortException("File " + filePath + " does not exist");
-
-        Posix posix = (Posix) Native.loadLibrary("c", Posix.class);
-        int returnCode = posix.symlink(filePath, symLinkPath);
-        if(returnCode < 0)
-            throw new VoldemortException("Unable to create symbolic link for " + filePath);
-    }
-
-    public interface Posix extends Library {
-
-        public int symlink(String oldName, String newName);
     }
 
     /**

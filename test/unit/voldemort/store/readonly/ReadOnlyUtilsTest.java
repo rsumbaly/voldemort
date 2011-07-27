@@ -26,6 +26,7 @@ import org.junit.Test;
 
 import voldemort.TestUtils;
 import voldemort.utils.ByteUtils;
+import voldemort.utils.JNAUtils;
 import voldemort.utils.Pair;
 import voldemort.utils.Utils;
 
@@ -118,7 +119,7 @@ public class ReadOnlyUtilsTest extends TestCase {
         assertEquals(ReadOnlyUtils.getVersionId(testFile4), -1);
 
         File latestSymLink = new File(tempParentDir, "latest");
-        Utils.symlink(testFile.getAbsolutePath(), latestSymLink.getAbsolutePath());
+        JNAUtils.createSymlink(testFile.getAbsolutePath(), latestSymLink.getAbsolutePath());
         assertFalse(ReadOnlyUtils.checkVersionDirName(latestSymLink));
         assertEquals(ReadOnlyUtils.getVersionId(latestSymLink), -1);
 

@@ -44,6 +44,7 @@ import voldemort.store.Store;
 import voldemort.store.StoreDefinition;
 import voldemort.utils.ByteArray;
 import voldemort.utils.ClosableIterator;
+import voldemort.utils.JNAUtils;
 import voldemort.utils.Pair;
 import voldemort.utils.Utils;
 import voldemort.versioning.Versioned;
@@ -349,7 +350,7 @@ public class ReadOnlyStorageEngineTest {
         engine.close();
 
         // test initial open with latest pointing at intermediate version folder
-        Utils.symlink(newDirv100.getAbsolutePath(), latestSymLink.getAbsolutePath());
+        JNAUtils.createSymlink(newDirv100.getAbsolutePath(), latestSymLink.getAbsolutePath());
         engine.open(null);
 
     }
