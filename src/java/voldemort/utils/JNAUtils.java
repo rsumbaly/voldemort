@@ -143,11 +143,13 @@ public class JNAUtils {
             field.setAccessible(true);
             fd = field.getInt(stream.getFD());
         } catch(Exception e) {
-            throw new VoldemortException("Could not retrieve file descriptor successfully", e);
+            logger.warn("Could not retrieve file descriptor successfully. Cannot run optimization",
+                        e);
+            return;
         }
 
         if(fd == -1) {
-            logger.warn("Could not retrieve file descriptor successfully");
+            logger.warn("File descriptor returned is invalid. Cannot run optimization");
             return;
         }
 
@@ -160,7 +162,7 @@ public class JNAUtils {
                 posix.fcntl(fd, F_PREALLOCATE, 1);
             }
         } catch(Exception e) {
-            logger.warn("Could not successfully enable better caching ", e);
+            logger.warn("Could not successfully enable optimized caching", e);
         }
     }
 }
