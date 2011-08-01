@@ -2,8 +2,21 @@ package voldemort.store.readonly;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.text.NumberFormat;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.apache.log4j.Logger;
 
 import voldemort.server.protocol.admin.AsyncOperationStatus;
+import voldemort.store.readonly.checksum.CheckSum;
+import voldemort.store.readonly.fetcher.CopyStats;
+import voldemort.store.readonly.fetcher.HdfsFetcher;
+import voldemort.utils.ByteUtils;
+import voldemort.utils.EventThrottler;
+import voldemort.utils.Props;
+import voldemort.utils.Utils;
 
 /**
  * An interface to fetch data for readonly store. The fetch could be via rsync
@@ -15,9 +28,85 @@ import voldemort.server.protocol.admin.AsyncOperationStatus;
  * 
  * 
  */
-public interface FileFetcher {
+public abstract class FileFetcher {
 
-    public File fetch(String source, String dest) throws IOException;
+    protected static final Logger logger = Logger.getLogger(HdfsFetcher.class);
 
-    public void setAsyncOperationStatus(AsyncOperationStatus status);
+    /**
+     * Strings for parameters
+     */
+    protected final static String MAX_BYTES_PER_SECOND_STRING = "fetcher.max.bytes.per.sec";
+    protected final static String REPORTING_INTERVAL_BYTES_STRING = "fetcher.reporting.interval.bytes";
+    protected final static String FETCHER_BUFFER_SIZE_STRING = "fetcher.buffer.size";
+    protected final static String HDFS_FETCHER_BUFFER_SIZE_STRING = "hdfs.fetcher.buffer.size";
+
+    protected final static long REPORTING_INTERVAL_BYTES = 25 * 1024 * 1024;
+    protected final static int DEFAULT_BUFFER_SIZE = 64 * 1024;
+
+    protected final Long maxBytesPerSecond;
+    protected final Long reportingIntervalBytes;
+    protected final int bufferSize;
+    protected static final AtomicInteger copyCount = new AtomicInteger(0);
+    protected AsyncOperationStatus status;
+    protected EventThrottler throttler = null;
+
+    public FileFetcher(Props props) {
+        this.maxBytesPerSecond = props.containsKey(MAX_BYTES_PER_SECOND_STRING) ? props.getBytes(MAX_BYTES_PER_SECOND_STRING)
+                                                                               : null;
+        if(this.maxBytesPerSecond != null)
+            this.throttler = new EventThrottler(this.maxBytesPerSecond);
+        this.reportingIntervalBytes = Utils.notNull(props.getBytes(REPORTING_INTERVAL_BYTES_STRING,
+                                                                   REPORTING_INTERVAL_BYTES));
+
+        // Keeping HDFS parameter for backwards compatibility
+        this.bufferSize = (int) props.getBytes(FETCHER_BUFFER_SIZE_STRING,
+                                               props.getBytes(HDFS_FETCHER_BUFFER_SIZE_STRING,
+                                                              DEFAULT_BUFFER_SIZE));
+        this.status = null;
+
+    }
+
+    protected void copyFileWithCheckSum(InputStream inputStream,
+                                        OutputStream outputStream,
+                                        CopyStats stats,
+                                        CheckSum fileCheckSumGenerator) throws IOException {
+        byte[] buffer = new byte[bufferSize];
+        while(true) {
+            int read = inputStream.read(buffer);
+            if(read < 0) {
+                break;
+            } else if(read < bufferSize) {
+                buffer = ByteUtils.copy(buffer, 0, read);
+            }
+            outputStream.write(buffer);
+            if(fileCheckSumGenerator != null)
+                fileCheckSumGenerator.update(buffer);
+            if(throttler != null)
+                throttler.maybeThrottle(read);
+            stats.recordBytes(read);
+            if(stats.getBytesSinceLastReport() > reportingIntervalBytes) {
+                NumberFormat format = NumberFormat.getNumberInstance();
+                format.setMaximumFractionDigits(2);
+                logger.info(stats.getTotalBytesCopied() / (1024 * 1024) + " MB copied at "
+                            + format.format(stats.getBytesPerSecond() / (1024 * 1024))
+                            + " MB/sec - " + format.format(stats.getPercentCopied())
+                            + " % complete");
+                if(this.status != null) {
+                    this.status.setStatus(stats.getTotalBytesCopied()
+                                          / (1024 * 1024)
+                                          + " MB copied at "
+                                          + format.format(stats.getBytesPerSecond() / (1024 * 1024))
+                                          + " MB/sec - " + format.format(stats.getPercentCopied())
+                                          + " % complete");
+                }
+                stats.reset();
+            }
+        }
+    }
+
+    public abstract File fetch(String source, String dest) throws IOException;
+
+    public void setAsyncOperationStatus(AsyncOperationStatus status) {
+        this.status = status;
+    }
 }

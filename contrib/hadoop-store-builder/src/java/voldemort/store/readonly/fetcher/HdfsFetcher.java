@@ -23,7 +23,6 @@ import java.io.OutputStream;
 import java.text.NumberFormat;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.management.ObjectName;
 
@@ -35,17 +34,13 @@ import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
-import voldemort.annotations.jmx.JmxGetter;
-import voldemort.server.protocol.admin.AsyncOperationStatus;
 import voldemort.store.readonly.FileFetcher;
 import voldemort.store.readonly.ReadOnlyStorageMetadata;
 import voldemort.store.readonly.checksum.CheckSum;
 import voldemort.store.readonly.checksum.CheckSum.CheckSumType;
 import voldemort.utils.ByteUtils;
-import voldemort.utils.EventThrottler;
 import voldemort.utils.JmxUtils;
 import voldemort.utils.Props;
 import voldemort.utils.Time;
@@ -56,42 +51,16 @@ import voldemort.utils.Utils;
  * 
  * 
  */
-public class HdfsFetcher implements FileFetcher {
-
-    private static final Logger logger = Logger.getLogger(HdfsFetcher.class);
-    private static final long REPORTING_INTERVAL_BYTES = 25 * 1024 * 1024;
-    private static final int DEFAULT_BUFFER_SIZE = 64 * 1024;
-
-    private final Long maxBytesPerSecond, reportingIntervalBytes;
-    private final int bufferSize;
-    private static final AtomicInteger copyCount = new AtomicInteger(0);
-    private AsyncOperationStatus status;
-    private EventThrottler throttler = null;
+public class HdfsFetcher extends FileFetcher {
 
     public HdfsFetcher(Props props) {
-        this(props.containsKey("fetcher.max.bytes.per.sec") ? props.getBytes("fetcher.max.bytes.per.sec")
-                                                           : null,
-             props.getBytes("fetcher.reporting.interval.bytes", REPORTING_INTERVAL_BYTES),
-             (int) props.getBytes("hdfs.fetcher.buffer.size", DEFAULT_BUFFER_SIZE));
-
+        super(props);
         logger.info("Created hdfs fetcher with throttle rate " + maxBytesPerSecond
                     + ", buffer size " + bufferSize + ", reporting interval bytes "
                     + reportingIntervalBytes);
     }
 
-    public HdfsFetcher() {
-        this((Long) null, REPORTING_INTERVAL_BYTES, DEFAULT_BUFFER_SIZE);
-    }
-
-    public HdfsFetcher(Long maxBytesPerSecond, Long reportingIntervalBytes, int bufferSize) {
-        this.maxBytesPerSecond = maxBytesPerSecond;
-        if(this.maxBytesPerSecond != null)
-            this.throttler = new EventThrottler(this.maxBytesPerSecond);
-        this.reportingIntervalBytes = Utils.notNull(reportingIntervalBytes);
-        this.bufferSize = bufferSize;
-        this.status = null;
-    }
-
+    @Override
     public File fetch(String sourceFileUrl, String destinationFile) throws IOException {
         Path path = new Path(sourceFileUrl);
         Configuration config = new Configuration();
@@ -238,39 +207,10 @@ public class HdfsFetcher implements FileFetcher {
         try {
             input = fs.open(source);
             output = new FileOutputStream(dest);
-            byte[] buffer = new byte[bufferSize];
-            while(true) {
-                int read = input.read(buffer);
-                if(read < 0) {
-                    break;
-                } else if(read < bufferSize) {
-                    buffer = ByteUtils.copy(buffer, 0, read);
-                }
-                output.write(buffer);
-                if(fileCheckSumGenerator != null)
-                    fileCheckSumGenerator.update(buffer);
-                if(throttler != null)
-                    throttler.maybeThrottle(read);
-                stats.recordBytes(read);
-                if(stats.getBytesSinceLastReport() > reportingIntervalBytes) {
-                    NumberFormat format = NumberFormat.getNumberInstance();
-                    format.setMaximumFractionDigits(2);
-                    logger.info(stats.getTotalBytesCopied() / (1024 * 1024) + " MB copied at "
-                                + format.format(stats.getBytesPerSecond() / (1024 * 1024))
-                                + " MB/sec - " + format.format(stats.getPercentCopied())
-                                + " % complete");
-                    if(this.status != null) {
-                        this.status.setStatus(stats.getTotalBytesCopied()
-                                              / (1024 * 1024)
-                                              + " MB copied at "
-                                              + format.format(stats.getBytesPerSecond()
-                                                              / (1024 * 1024)) + " MB/sec - "
-                                              + format.format(stats.getPercentCopied())
-                                              + " % complete");
-                    }
-                    stats.reset();
-                }
-            }
+
+            // Copy from input stream to output stream
+            copyFileWithCheckSum(input, output, stats, fileCheckSumGenerator);
+
             logger.info("Completed copy of " + source + " to " + dest);
         } finally {
             IOUtils.closeQuietly(output);
@@ -290,61 +230,6 @@ public class HdfsFetcher implements FileFetcher {
             }
         }
         return size;
-    }
-
-    public static class CopyStats {
-
-        private final String fileName;
-        private volatile long bytesSinceLastReport;
-        private volatile long totalBytesCopied;
-        private volatile long lastReportNs;
-        private volatile long totalBytes;
-
-        public CopyStats(String fileName, long totalBytes) {
-            this.fileName = fileName;
-            this.totalBytesCopied = 0L;
-            this.bytesSinceLastReport = 0L;
-            this.totalBytes = totalBytes;
-            this.lastReportNs = System.nanoTime();
-        }
-
-        public void recordBytes(long bytes) {
-            this.totalBytesCopied += bytes;
-            this.bytesSinceLastReport += bytes;
-        }
-
-        public void reset() {
-            this.bytesSinceLastReport = 0;
-            this.lastReportNs = System.nanoTime();
-        }
-
-        public long getBytesSinceLastReport() {
-            return bytesSinceLastReport;
-        }
-
-        public double getPercentCopied() {
-            if(totalBytes == 0) {
-                return 0.0;
-            } else {
-                return (double) (totalBytesCopied * 100) / (double) totalBytes;
-            }
-        }
-
-        @JmxGetter(name = "totalBytesCopied", description = "The total number of bytes copied so far in this transfer.")
-        public long getTotalBytesCopied() {
-            return totalBytesCopied;
-        }
-
-        @JmxGetter(name = "bytesPerSecond", description = "The rate of the transfer in bytes/second.")
-        public double getBytesPerSecond() {
-            double ellapsedSecs = (System.nanoTime() - lastReportNs) / (double) Time.NS_PER_SECOND;
-            return bytesSinceLastReport / ellapsedSecs;
-        }
-
-        @JmxGetter(name = "filename", description = "The file path being copied.")
-        public String getFilename() {
-            return this.fileName;
-        }
     }
 
     /**
@@ -383,10 +268,6 @@ public class HdfsFetcher implements FileFetcher {
         }
     }
 
-    public void setAsyncOperationStatus(AsyncOperationStatus status) {
-        this.status = status;
-    }
-
     /*
      * Main method for testing fetching
      */
@@ -395,17 +276,22 @@ public class HdfsFetcher implements FileFetcher {
             Utils.croak("USAGE: java " + HdfsFetcher.class.getName() + " url");
         String url = args[0];
         long maxBytesPerSec = 1024 * 1024 * 1024;
+
         Path p = new Path(url);
         Configuration config = new Configuration();
         config.setInt("io.file.buffer.size", DEFAULT_BUFFER_SIZE);
         config.set("hadoop.rpc.socket.factory.class.ClientProtocol",
                    ConfigurableSocketFactory.class.getName());
         config.setInt("io.socket.receive.buffer", 1 * 1024 * 1024 - 10000);
+
         FileStatus status = p.getFileSystem(config).getFileStatus(p);
         long size = status.getLen();
-        HdfsFetcher fetcher = new HdfsFetcher(maxBytesPerSec,
-                                              REPORTING_INTERVAL_BYTES,
-                                              DEFAULT_BUFFER_SIZE);
+        Props properties = new Props();
+        properties.put(MAX_BYTES_PER_SECOND_STRING, maxBytesPerSec);
+        properties.put(REPORTING_INTERVAL_BYTES_STRING, REPORTING_INTERVAL_BYTES);
+        properties.put(FETCHER_BUFFER_SIZE_STRING, DEFAULT_BUFFER_SIZE);
+
+        HdfsFetcher fetcher = new HdfsFetcher(properties);
         long start = System.currentTimeMillis();
         File location = fetcher.fetch(url, System.getProperty("java.io.tmpdir") + File.separator
                                            + start);

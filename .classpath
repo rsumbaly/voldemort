@@ -39,7 +39,6 @@
 	<classpathentry kind="lib" path="lib/commons-pool-1.5.2.jar"/>
 	<classpathentry kind="lib" path="lib/protobuf-java-2.3.0.jar"/>
 	<classpathentry kind="lib" path="contrib/ec2-testing/lib/typica.jar"/>
-	<classpathentry kind="lib" path="lib/google-collect-1.0.jar"/>
 	<classpathentry kind="lib" path="lib/je-4.0.92.jar"/>
 	<classpathentry kind="lib" path="lib/paranamer-2.1.jar"/>
 	<classpathentry kind="lib" path="lib/jackson-mapper-asl-1.4.0.jar"/>
@@ -49,5 +48,21 @@
 	<classpathentry kind="lib" path="lib/mockito-all-1.8.5.jar"/>
 	<classpathentry kind="lib" path="lib/avro-1.4.0.jar"/>
 	<classpathentry kind="lib" path="lib/libthrift-0.5.0.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/aopalliance-1.0.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/aws-common-1.0.0.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/aws-s3-1.0.0.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/gson-1.7.1.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/guice-3.0.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/guice-assistedinject-3.0.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/java-xmlbuilder-0.3.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/javax.inject-1.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/jclouds-blobstore-1.0.0.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/jclouds-core-1.0.0.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/jersey-core-1.6.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/jsr250-api-1.0.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/jsr305-1.3.9.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/oauth-20100527.jar"/>
+	<classpathentry kind="lib" path="contrib/hadoop-store-builder/lib/s3-1.0.0.jar"/>
+	<classpathentry kind="lib" path="lib/guava-r09.jar"/>
 	<classpathentry kind="output" path="classes"/>
 </classpath>
