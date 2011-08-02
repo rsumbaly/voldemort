@@ -19,6 +19,7 @@ package voldemort.store.readonly.fetcher;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.NumberFormat;
 import java.util.Arrays;
@@ -52,6 +53,10 @@ import voldemort.utils.Utils;
  * 
  */
 public class HdfsFetcher extends FileFetcher {
+
+    public HdfsFetcher() {
+        this(new Props());
+    }
 
     public HdfsFetcher(Props props) {
         super(props);
@@ -215,6 +220,44 @@ public class HdfsFetcher extends FileFetcher {
         } finally {
             IOUtils.closeQuietly(output);
             IOUtils.closeQuietly(input);
+        }
+    }
+
+    private void copyFileWithCheckSum(InputStream inputStream,
+                                      OutputStream outputStream,
+                                      CopyStats stats,
+                                      CheckSum fileCheckSumGenerator) throws IOException {
+        byte[] buffer = new byte[bufferSize];
+        while(true) {
+            int read = inputStream.read(buffer);
+            if(read < 0) {
+                break;
+            } else if(read < bufferSize) {
+                buffer = ByteUtils.copy(buffer, 0, read);
+            }
+            outputStream.write(buffer);
+            if(fileCheckSumGenerator != null)
+                fileCheckSumGenerator.update(buffer);
+            if(throttler != null)
+                throttler.maybeThrottle(read);
+            stats.recordBytes(read);
+            if(stats.getBytesSinceLastReport() > reportingIntervalBytes) {
+                NumberFormat format = NumberFormat.getNumberInstance();
+                format.setMaximumFractionDigits(2);
+                logger.info(stats.getTotalBytesCopied() / (1024 * 1024) + " MB copied at "
+                            + format.format(stats.getBytesPerSecond() / (1024 * 1024))
+                            + " MB/sec - " + format.format(stats.getPercentCopied())
+                            + " % complete");
+                if(this.status != null) {
+                    this.status.setStatus(stats.getTotalBytesCopied()
+                                          / (1024 * 1024)
+                                          + " MB copied at "
+                                          + format.format(stats.getBytesPerSecond() / (1024 * 1024))
+                                          + " MB/sec - " + format.format(stats.getPercentCopied())
+                                          + " % complete");
+                }
+                stats.reset();
+            }
         }
     }
 

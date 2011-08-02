@@ -61,11 +61,6 @@ public class S3Fetcher extends FileFetcher {
             for(Entry<String, InputStream> entry: map.entrySet()) {
                 System.out.println("BLAH - " + entry.getKey());
             }
-            // for(StorageMetadata metadata: store.list("rsumbaly",
-            // ListContainerOptions.Builder.inDirectory("voldemort/node-0"))) {
-            // System.out.println("Metadata -  " + metadata.getName());
-            //
-            // }
 
         } finally {
             if(context != null) {
@@ -80,18 +75,15 @@ public class S3Fetcher extends FileFetcher {
      * Main method for testing fetching
      */
     public static void main(String[] args) throws Exception {
+        if(args.length != 2) {
+            System.err.println("java [classname] [identity] [credential]");
+            System.exit(1);
+        }
         Props props = new Props();
-        props.put("fetcher.identity", "AKIAIH2ZVHQDVYZUWGNA");
-        props.put("fetcher.credential", "5ADjaxBgofFKZIfGXwnvpZR4q65AHrEHG2/e1dOF");
+        props.put("fetcher.identity", args[0]);
+        props.put("fetcher.credential", args[1]);
         S3Fetcher fetcher = new S3Fetcher(props);
         long start = System.currentTimeMillis();
-        File location = fetcher.fetch("", System.getProperty("java.io.tmpdir") + File.separator
-                                          + start);
-        // double rate = size * Time.MS_PER_SECOND / (double)
-        // (System.currentTimeMillis() - start);
-        // NumberFormat nf = NumberFormat.getInstance();
-        // nf.setMaximumFractionDigits(2);
-        // System.out.println("Fetch to " + location + " completed: "
-        // + nf.format(rate / (1024.0 * 1024.0)) + " MB/sec.");
+        fetcher.fetch("", System.getProperty("java.io.tmpdir") + File.separator + start);
     }
 }
