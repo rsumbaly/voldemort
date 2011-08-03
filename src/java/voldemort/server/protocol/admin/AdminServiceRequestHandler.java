@@ -129,7 +129,7 @@ public class AdminServiceRequestHandler implements RequestHandler {
                 this.fileFetcher = null;
             } else {
                 try {
-                    logger.info("Loading fetcher " + className);
+                    logger.trace("Loading fetcher " + className);
                     Class<?> cls = Class.forName(className.trim());
                     this.fileFetcher = (FileFetcher) ReflectUtils.callConstructor(cls,
                                                                                   new Class<?>[] { Props.class },

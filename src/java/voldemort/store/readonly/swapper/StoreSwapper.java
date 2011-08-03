@@ -30,8 +30,7 @@ import com.google.common.collect.ImmutableSet;
 
 /**
  * A helper class to invoke the FETCH and SWAP operations on a remote store via
- * HTTP.
- * 
+ * (a) HTTP (b) Admin based service
  * 
  */
 public abstract class StoreSwapper {
@@ -60,25 +59,26 @@ public abstract class StoreSwapper {
 
     public static void main(String[] args) throws Exception {
         OptionParser parser = new OptionParser();
-        parser.accepts("help", "print usage information");
-        parser.accepts("cluster", "[REQUIRED] the voldemort cluster.xml file ")
+        parser.accepts("help", "Print usage information");
+        parser.accepts("cluster", "[REQUIRED] Voldemort cluster.xml file ")
               .withRequiredArg()
               .describedAs("cluster.xml");
-        parser.accepts("name", "[REQUIRED] the name of the store to swap")
+        parser.accepts("name", "[REQUIRED] Name of the store to swap")
               .withRequiredArg()
               .describedAs("store-name");
-        parser.accepts("servlet-path", "the path for the read-only management servlet")
+        parser.accepts("servlet-path",
+                       "Path for the read-only management servlet, if using HTTP [ Default : read-only/mgmt ]")
               .withRequiredArg()
               .describedAs("path");
-        parser.accepts("file", "[REQUIRED] uri of a directory containing the new store files")
+        parser.accepts("file", "[REQUIRED] URI of a directory containing the new store files")
               .withRequiredArg()
               .describedAs("uri");
-        parser.accepts("timeout", "http timeout for the fetch in ms")
+        parser.accepts("timeout", "Timeout for the fetch in ms [ Default : 24 hours ] ")
               .withRequiredArg()
               .describedAs("timeout ms")
               .ofType(Integer.class);
         parser.accepts("rollback", "Rollback store to older version");
-        parser.accepts("admin", "Use admin services. Default = false");
+        parser.accepts("admin", "Use admin services [ Default : false ]");
         parser.accepts("push-version", "[REQUIRED] Version of push to fetch / rollback-to")
               .withRequiredArg()
               .ofType(Long.class);
@@ -104,7 +104,7 @@ public abstract class StoreSwapper {
         String filePath = (String) options.valueOf("file");
         int timeoutMs = CmdUtils.valueOf(options,
                                          "timeout",
-                                         (int) (3 * Time.SECONDS_PER_HOUR * Time.MS_PER_SECOND));
+                                         (int) (24 * Time.SECONDS_PER_HOUR * Time.MS_PER_SECOND));
         boolean useAdminServices = options.has("admin");
         boolean rollbackStore = options.has("rollback");
         Long pushVersion = (Long) options.valueOf("push-version");

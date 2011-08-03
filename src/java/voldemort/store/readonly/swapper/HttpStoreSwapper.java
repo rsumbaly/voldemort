@@ -72,15 +72,19 @@ public class HttpStoreSwapper extends StoreSwapper {
                     if(pushVersion > 0)
                         post.addParameter("pushVersion", Long.toString(pushVersion));
 
-                    logger.info("Invoking fetch for node " + node.getId() + " for " + storeDir);
-
+                    logger.info("Invoking fetch for node " + node.getId() + " on store "
+                                + storeName + " and store directory " + storeDir);
                     int responseCode = httpClient.executeMethod(post);
                     String response = post.getResponseBodyAsString(30000);
 
-                    if(responseCode != 200)
-                        throw new VoldemortException("Fetch request on node " + node.getId() + " ("
-                                                     + url + ") failed: " + post.getStatusText());
-                    logger.info("Fetch succeeded on node " + node.getId());
+                    if(responseCode != 200) {
+                        throw new VoldemortException("Fetch request failed for node "
+                                                     + node.getId() + " on store " + storeName
+                                                     + " and store directory " + storeDir + " : "
+                                                     + post.getStatusText());
+                    }
+                    logger.info("Fetch succeeded for node " + node.getId() + " on store "
+                                + storeName + " and store directory " + storeDir);
                     return response.trim();
                 }
             }));
@@ -111,31 +115,37 @@ public class HttpStoreSwapper extends StoreSwapper {
                         post.addParameter("operation", "failed-fetch");
                         post.addParameter("dir", results.get(successfulNodeId));
                         post.addParameter("store", storeName);
-                        logger.info("Deleting fetched data from node " + successfulNodeId);
+                        logger.info("Invoking deletion of fetched data for node "
+                                    + successfulNodeId + " on store " + storeName
+                                    + " and store directory " + results.get(successfulNodeId));
 
                         int responseCode = httpClient.executeMethod(post);
                         String response = post.getStatusText();
 
                         if(responseCode == 200) {
-                            logger.info("Deleted successfully on node " + successfulNodeId);
+                            logger.info("Deletion succeeded on fetched data for node "
+                                        + successfulNodeId + " on store " + storeName
+                                        + " and store directory " + results.get(successfulNodeId));
                         } else {
                             throw new VoldemortException(response);
                         }
                     } catch(Exception e) {
-                        logger.error("Exception thrown during delete operation on node "
-                                     + successfulNodeId + " : ", e);
+                        logger.error("Delete request failed for node " + successfulNodeId
+                                     + " on store " + storeName + " and store directory "
+                                     + results.get(successfulNodeId) + " : ", e);
                     }
                 }
             }
 
             // Finally log the errors for the user
             for(int failedNodeId: exceptions.keySet()) {
-                logger.error("Error on node " + failedNodeId + " during push : ",
-                             exceptions.get(failedNodeId));
+                logger.error("Error on node " + failedNodeId + " during push for store "
+                             + storeName + " : ", exceptions.get(failedNodeId));
             }
 
             throw new VoldemortException("Exception during pushes to nodes "
-                                         + Joiner.on(",").join(exceptions.keySet()) + " failed");
+                                         + Joiner.on(",").join(exceptions.keySet()) + " for store "
+                                         + storeName + " failed");
         }
 
         return Lists.newArrayList(results.values());
@@ -153,7 +163,8 @@ public class HttpStoreSwapper extends StoreSwapper {
                 PostMethod post = new PostMethod(url);
                 post.addParameter("operation", "swap");
                 String dir = fetchFiles.get(node.getId());
-                logger.info("Attempting swap for node " + node.getId() + " dir = " + dir);
+                logger.info("Invoking swap for node " + node.getId() + " on store " + storeName
+                            + " and store directory " + dir);
                 post.addParameter("dir", dir);
                 post.addParameter("store", storeName);
 
@@ -161,14 +172,15 @@ public class HttpStoreSwapper extends StoreSwapper {
                 String previousDir = post.getResponseBodyAsString(30000);
 
                 if(responseCode != 200)
-                    throw new VoldemortException("Swap request on node " + node.getId() + " ("
-                                                 + url + ") failed: " + post.getStatusText());
-                logger.info("Swap succeeded on node " + node.getId());
+                    throw new VoldemortException("Swap request failed for node " + node.getId()
+                                                 + " on store " + storeName + " : "
+                                                 + post.getStatusText());
                 previousDirs.put(node.getId(), previousDir);
+                logger.info("Swap succeeded for node " + node.getId() + " on store " + storeName
+                            + " and store directory " + dir);
+
             } catch(Exception e) {
                 exceptions.put(node.getId(), e);
-                logger.error("Exception thrown during swap operation on node " + node.getId()
-                             + ": ", e);
             }
         }
 
@@ -185,19 +197,27 @@ public class HttpStoreSwapper extends StoreSwapper {
                         post.addParameter("pushVersion",
                                           Long.toString(ReadOnlyUtils.getVersionId(new File(previousDirs.get(successfulNodeId)))));
 
-                        logger.info("Rolling back data on successful node " + successfulNodeId);
-
+                        logger.info("Invoking rollback ( post failed swap ) for node "
+                                    + successfulNodeId + " on store " + storeName
+                                    + " and store directory " + previousDirs.get(successfulNodeId));
                         int responseCode = httpClient.executeMethod(post);
                         String response = post.getStatusText();
 
                         if(responseCode == 200) {
-                            logger.info("Rollback succeeded for node " + successfulNodeId);
+                            logger.info("Rollback ( post failed swap ) succeeded for node "
+                                        + successfulNodeId + " on store " + storeName
+                                        + " and store directory "
+                                        + previousDirs.get(successfulNodeId));
                         } else {
                             throw new VoldemortException(response);
                         }
                     } catch(Exception e) {
-                        logger.error("Exception thrown during rollback ( after swap ) operation on node "
-                                             + successfulNodeId + " : ",
+                        logger.error("Exception during rollback ( post failed swap ) operation for node "
+                                             + successfulNodeId
+                                             + " on store "
+                                             + storeName
+                                             + " and store directory "
+                                             + previousDirs.get(successfulNodeId),
                                      e);
                     }
                 }
@@ -205,12 +225,13 @@ public class HttpStoreSwapper extends StoreSwapper {
 
             // Finally log the errors for the user
             for(int failedNodeId: exceptions.keySet()) {
-                logger.error("Error on node " + failedNodeId + " during swap : ",
-                             exceptions.get(failedNodeId));
+                logger.error("Error on node " + failedNodeId + " during swap for store "
+                             + storeName + " : ", exceptions.get(failedNodeId));
             }
 
             throw new VoldemortException("Exception during swaps on nodes "
-                                         + Joiner.on(",").join(exceptions.keySet()) + " failed");
+                                         + Joiner.on(",").join(exceptions.keySet()) + " for store "
+                                         + storeName + " failed");
         }
 
     }
@@ -220,8 +241,8 @@ public class HttpStoreSwapper extends StoreSwapper {
         Exception exception = null;
         for(Node node: cluster.getNodes()) {
             try {
-                logger.info("Attempting rollback for node " + node.getId() + " storeName = "
-                            + storeName);
+                logger.info("Invoking rollback for node " + node.getId() + " on store " + storeName
+                            + " and version " + pushVersion);
                 String url = node.getHttpUrl() + "/" + readOnlyMgmtPath;
                 PostMethod post = new PostMethod(url);
                 post.addParameter("operation", "rollback");
@@ -231,14 +252,15 @@ public class HttpStoreSwapper extends StoreSwapper {
                 int responseCode = httpClient.executeMethod(post);
                 String response = post.getStatusText();
                 if(responseCode == 200) {
-                    logger.info("Rollback succeeded for node " + node.getId());
+                    logger.info("Rollback succeeded for node " + node.getId() + " on store "
+                                + storeName + " and version " + pushVersion);
                 } else {
                     throw new VoldemortException(response);
                 }
             } catch(Exception e) {
                 exception = e;
-                logger.error("Exception thrown during rollback operation on node " + node.getId()
-                             + ": ", e);
+                logger.error("Exception thrown during rollback operation for node " + node.getId()
+                             + " on store " + storeName + " and version " + pushVersion, e);
             }
         }
 

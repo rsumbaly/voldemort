@@ -57,7 +57,6 @@ import voldemort.server.StoreRepository;
 import voldemort.server.VoldemortConfig;
 import voldemort.server.scheduler.DataCleanupJob;
 import voldemort.server.scheduler.SchedulerService;
-import voldemort.server.scheduler.slop.BlockingSlopPusherJob;
 import voldemort.server.scheduler.slop.RepairJob;
 import voldemort.server.scheduler.slop.StreamingSlopPusherJob;
 import voldemort.store.StorageConfiguration;
@@ -211,21 +210,14 @@ public class StorageService extends AbstractService {
                 cal.add(Calendar.SECOND,
                         (int) (voldemortConfig.getSlopFrequencyMs() / Time.MS_PER_SECOND));
                 Date nextRun = cal.getTime();
-                logger.info("Initializing slop pusher job type " + voldemortConfig.getPusherType()
-                            + " at " + nextRun);
+                logger.info("Initializing streaming slop pusher job type at " + nextRun);
 
                 scheduler.schedule("slop",
-                                   (voldemortConfig.getPusherType()
-                                                   .compareTo(BlockingSlopPusherJob.TYPE_NAME) == 0) ? new BlockingSlopPusherJob(storeRepository,
-                                                                                                                                 metadata,
-                                                                                                                                 failureDetector,
-                                                                                                                                 voldemortConfig,
-                                                                                                                                 scanPermits)
-                                                                                                    : new StreamingSlopPusherJob(storeRepository,
-                                                                                                                                 metadata,
-                                                                                                                                 failureDetector,
-                                                                                                                                 voldemortConfig,
-                                                                                                                                 scanPermits),
+                                   new StreamingSlopPusherJob(storeRepository,
+                                                              metadata,
+                                                              failureDetector,
+                                                              voldemortConfig,
+                                                              scanPermits),
                                    nextRun,
                                    voldemortConfig.getSlopFrequencyMs());
 
@@ -235,8 +227,7 @@ public class StorageService extends AbstractService {
                     cal.add(Calendar.SECOND,
                             (int) (voldemortConfig.getRepairStartMs() / Time.MS_PER_SECOND));
                     nextRun = cal.getTime();
-                    logger.info("Initializing repair job " + voldemortConfig.getPusherType()
-                                + " at " + nextRun);
+                    logger.info("Initializing repair job at " + nextRun);
                     RepairJob job = new RepairJob(storeRepository, metadata, scanPermits);
 
                     JmxUtils.registerMbean(job, JmxUtils.createObjectName(job.getClass()));

@@ -24,7 +24,6 @@ import java.util.Properties;
 
 import voldemort.client.protocol.RequestFormatType;
 import voldemort.cluster.failuredetector.FailureDetectorConfig;
-import voldemort.server.scheduler.slop.StreamingSlopPusherJob;
 import voldemort.store.bdb.BdbStorageConfiguration;
 import voldemort.store.memory.CacheStorageConfiguration;
 import voldemort.store.memory.InMemoryStorageConfiguration;
@@ -137,7 +136,6 @@ public class VoldemortConfig implements Serializable {
     private Props allProps;
 
     private String slopStoreType;
-    private String pusherType;
     private long slopFrequencyMs;
     private long repairStartMs;
     private long slopMaxWriteBytesPerSec;
@@ -286,7 +284,6 @@ public class VoldemortConfig implements Serializable {
         this.slopFrequencyMs = props.getLong("slop.frequency.ms", 5 * 60 * 1000);
         this.repairStartMs = props.getLong("repair.start.ms", 24 * 60 * 60 * 1000);
         this.slopBatchSize = props.getInt("slop.batch.size", 100);
-        this.pusherType = props.getString("pusher.type", StreamingSlopPusherJob.TYPE_NAME);
         this.slopZonesDownToTerminate = props.getInt("slop.zones.terminate", 0);
 
         this.schedulerThreads = props.getInt("scheduler.threads", 6);
@@ -884,18 +881,6 @@ public class VoldemortConfig implements Serializable {
 
     public void setSlopStoreType(String slopStoreType) {
         this.slopStoreType = slopStoreType;
-    }
-
-    /**
-     * The type of streaming job we would want to use to send hints. Defaults to
-     * streaming
-     */
-    public String getPusherType() {
-        return this.pusherType;
-    }
-
-    public void setPusherType(String pusherType) {
-        this.pusherType = pusherType;
     }
 
     /**
