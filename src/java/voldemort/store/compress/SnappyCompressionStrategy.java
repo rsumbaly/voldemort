@@ -4,26 +4,27 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
-import com.ning.compress.lzf.LZFInputStream;
-import com.ning.compress.lzf.LZFOutputStream;
+import org.xerial.snappy.SnappyInputStream;
+import org.xerial.snappy.SnappyOutputStream;
 
 /**
- * Implementation of CompressionStrategy for the LZF format. LZF is optimized
- * for speed.
+ * Implementation of CompressionStrategy for Google's Snappy compression -
+ * called through JNI
  */
-public class LzfCompressionStrategy extends StreamCompressionStrategy {
+public class SnappyCompressionStrategy extends StreamCompressionStrategy {
 
     public String getType() {
-        return "lzf";
+        return "snappy";
     }
 
     @Override
     protected OutputStream wrapOutputStream(OutputStream underlying) throws IOException {
-        return new LZFOutputStream(underlying);
+        return new SnappyOutputStream(underlying);
     }
 
     @Override
     protected InputStream wrapInputStream(InputStream underlying) throws IOException {
-        return new LZFInputStream(underlying);
+        return new SnappyInputStream(underlying);
     }
+
 }
