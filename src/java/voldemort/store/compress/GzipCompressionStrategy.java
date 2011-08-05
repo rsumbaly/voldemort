@@ -9,18 +9,19 @@ import java.util.zip.GZIPOutputStream;
 /**
  * Implementation of CompressionStrategy for the gzip format.
  */
-public class GzipCompressionStrategy extends StreamCompressionStrategy {
+public class GzipCompressionStrategy extends CompressionStrategy {
 
     @Override
-    protected OutputStream wrapOutputStream(OutputStream underlying) throws IOException {
+    public OutputStream wrapOutputStream(OutputStream underlying) throws IOException {
         return new GZIPOutputStream(underlying);
     }
 
     @Override
-    protected InputStream wrapInputStream(InputStream underlying) throws IOException {
+    public InputStream wrapInputStream(InputStream underlying) throws IOException {
         return new GZIPInputStream(underlying);
     }
 
+    @Override
     public String getType() {
         return "gzip";
     }

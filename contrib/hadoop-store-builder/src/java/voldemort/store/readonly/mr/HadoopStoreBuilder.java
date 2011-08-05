@@ -43,7 +43,10 @@ import org.apache.log4j.Logger;
 import voldemort.VoldemortException;
 import voldemort.cluster.Cluster;
 import voldemort.cluster.Node;
+import voldemort.serialization.Compression;
 import voldemort.store.StoreDefinition;
+import voldemort.store.compress.CompressionStrategy;
+import voldemort.store.compress.CompressionStrategyFactory;
 import voldemort.store.readonly.ReadOnlyStorageFormat;
 import voldemort.store.readonly.ReadOnlyStorageMetadata;
 import voldemort.store.readonly.checksum.CheckSum;
@@ -76,6 +79,7 @@ public class HadoopStoreBuilder {
     private final Path outputDir;
     private final Path tempDir;
     private CheckSumType checkSumType = CheckSumType.NONE;
+    private Compression compression = null;
     private boolean saveKeys = false;
     private boolean reducerPerBucket = false;
     private int numChunks = -1;
@@ -211,6 +215,7 @@ public class HadoopStoreBuilder {
      * @param outputDir The directory in which to place the built stores
      * @param inputPath The path from which to read input data
      * @param checkSumType The checksum algorithm to use
+     * @param compression Type of compression ( can be null )
      * @param saveKeys Boolean to signify if we want to save the key as well
      * @param reducerPerBucket Boolean to signify whether we want to have a
      *        single reducer for a bucket ( thereby resulting in all chunk files
@@ -227,6 +232,7 @@ public class HadoopStoreBuilder {
                               Path outputDir,
                               Path inputPath,
                               CheckSumType checkSumType,
+                              Compression compression,
                               boolean saveKeys,
                               boolean reducerPerBucket) {
         this(conf,
@@ -239,6 +245,7 @@ public class HadoopStoreBuilder {
              outputDir,
              inputPath,
              checkSumType);
+        this.compression = compression;
         this.saveKeys = saveKeys;
         this.reducerPerBucket = reducerPerBucket;
     }
@@ -256,6 +263,7 @@ public class HadoopStoreBuilder {
      * @param outputDir The directory in which to place the built stores
      * @param inputPath The path from which to read input data
      * @param checkSumType The checksum algorithm to use
+     * @param compression Type of compression ( can be null )
      * @param saveKeys Boolean to signify if we want to save the key as well
      * @param reducerPerBucket Boolean to signify whether we want to have a
      *        single reducer for a bucket ( thereby resulting in all chunk files
@@ -273,6 +281,7 @@ public class HadoopStoreBuilder {
                               Path outputDir,
                               Path inputPath,
                               CheckSumType checkSumType,
+                              Compression compression,
                               boolean saveKeys,
                               boolean reducerPerBucket,
                               int numChunks) {
@@ -287,6 +296,7 @@ public class HadoopStoreBuilder {
         this.tempDir = tempDir;
         this.outputDir = Utils.notNull(outputDir);
         this.checkSumType = checkSumType;
+        this.compression = compression;
         this.saveKeys = saveKeys;
         this.reducerPerBucket = reducerPerBucket;
         this.numChunks = numChunks;
@@ -314,6 +324,28 @@ public class HadoopStoreBuilder {
                 conf.setReducerClass(HadoopStoreBuilderReducerPerBucket.class);
             } else {
                 conf.setReducerClass(HadoopStoreBuilderReducer.class);
+            }
+
+            CompressionStrategy strategy = null;
+
+            // Do compression only if we haven't done a row level compression
+            if(compression != null && storeDef.getValueSerializer().getCompression() == null
+               && storeDef.getKeySerializer().getCompression() == null) {
+                boolean compressionExists = true;
+
+                // Create a compression factory to check if the algorithm exists
+                try {
+                    strategy = new CompressionStrategyFactory().get(compression);
+                    logger.info("Successful instantiated compression type " + compression.getType());
+                } catch(Exception e) {
+                    logger.warn("Could not instantiate compression type ( " + compression.getType()
+                                + ") successfully. Continuing without any compression");
+                    compressionExists = false;
+                }
+
+                if(compressionExists && strategy != null) {
+                    conf.set("push.compress", compression.getType());
+                }
             }
             conf.setInputFormat(inputFormatClass);
             conf.setOutputFormat(SequenceFileOutputFormat.class);
@@ -381,7 +413,7 @@ public class HadoopStoreBuilder {
             conf.setNumReduceTasks(numReducers);
 
             logger.info("Number of chunks: " + numChunks + ", number of reducers: " + numReducers
-                        + ", save keys: " + saveKeys + ", reducerPerBucket: " + reducerPerBucket);
+                        + ", save keys: " + saveKeys + ", reducer per bucket: " + reducerPerBucket);
             logger.info("Building store...");
             RunningJob job = JobClient.runJob(conf);
 
@@ -430,6 +462,7 @@ public class HadoopStoreBuilder {
                     outputFs.mkdirs(nodePath); // Create empty folder
                 }
 
+                // Check if we need to do checkum
                 if(checkSumType != CheckSumType.NONE) {
 
                     FileStatus[] storeFiles = outputFs.listStatus(nodePath, new PathFilter() {
@@ -473,6 +506,12 @@ public class HadoopStoreBuilder {
 
                         metadata.add(ReadOnlyStorageMetadata.CHECKSUM, checkSum);
                     }
+                }
+
+                // Check if we this data was compresses
+                if(strategy != null) {
+                    // Add this information to the metadata file
+                    metadata.add(ReadOnlyStorageMetadata.COMPRESSION_TYPE, strategy.getType());
                 }
 
                 // Write metadata

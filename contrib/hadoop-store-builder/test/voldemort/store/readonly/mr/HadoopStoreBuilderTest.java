@@ -159,6 +159,7 @@ public class HadoopStoreBuilderTest {
                                                             new Path(outputDir.getAbsolutePath()),
                                                             new Path(inputFile.getAbsolutePath()),
                                                             CheckSumType.MD5,
+                                                            null,
                                                             saveKeys,
                                                             false);
         builder.build();
@@ -223,6 +224,7 @@ public class HadoopStoreBuilderTest {
                                                             new Path(outputDir2.getAbsolutePath()),
                                                             new Path(inputFile.getAbsolutePath()),
                                                             CheckSumType.MD5,
+                                                            null,
                                                             saveKeys,
                                                             false);
         builder.build();
@@ -237,6 +239,7 @@ public class HadoopStoreBuilderTest {
                                          new Path(outputDir.getAbsolutePath()),
                                          new Path(inputFile.getAbsolutePath()),
                                          CheckSumType.MD5,
+                                         null,
                                          saveKeys,
                                          false);
         builder.build();

@@ -44,6 +44,8 @@ import com.google.common.collect.Maps;
  * @see CompressionStrategy
  * @see NoopCompressionStrategy
  * @see GzipCompressionStrategy
+ * @see LzfCompressionStrategy
+ * @see SnappyCompressionStrategy
  */
 public class CompressingStore implements Store<ByteArray, byte[], byte[]> {
 

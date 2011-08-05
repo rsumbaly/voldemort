@@ -11,19 +11,20 @@ import org.xerial.snappy.SnappyOutputStream;
  * Implementation of CompressionStrategy for Google's Snappy compression -
  * called through JNI
  */
-public class SnappyCompressionStrategy extends StreamCompressionStrategy {
+public class SnappyCompressionStrategy extends CompressionStrategy {
 
+    @Override
     public String getType() {
         return "snappy";
     }
 
     @Override
-    protected OutputStream wrapOutputStream(OutputStream underlying) throws IOException {
+    public OutputStream wrapOutputStream(OutputStream underlying) throws IOException {
         return new SnappyOutputStream(underlying);
     }
 
     @Override
-    protected InputStream wrapInputStream(InputStream underlying) throws IOException {
+    public InputStream wrapInputStream(InputStream underlying) throws IOException {
         return new SnappyInputStream(underlying);
     }
 

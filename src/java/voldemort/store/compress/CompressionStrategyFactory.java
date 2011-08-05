@@ -5,7 +5,7 @@ import voldemort.serialization.Compression;
 public class CompressionStrategyFactory {
 
     public CompressionStrategy get(Compression compression) {
-        if(compression == null)
+        if(compression == null || compression.getType().equals("noop"))
             return new NoopCompressionStrategy();
         if(compression.getType().equals("gzip"))
             return new GzipCompressionStrategy();

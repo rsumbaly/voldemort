@@ -34,6 +34,9 @@ import org.apache.hadoop.mapred.Reporter;
 import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
+import voldemort.serialization.Compression;
+import voldemort.store.compress.CompressionStrategy;
+import voldemort.store.compress.CompressionStrategyFactory;
 import voldemort.store.readonly.ReadOnlyUtils;
 import voldemort.store.readonly.checksum.CheckSum;
 import voldemort.store.readonly.checksum.CheckSum.CheckSumType;
@@ -223,6 +226,21 @@ public class HadoopStoreBuilderReducer extends AbstractStoreBuilderConfigurable 
 
             this.indexFileStream = fs.create(this.taskIndexFileName);
             this.valueFileStream = fs.create(this.taskValueFileName);
+
+            // If compression exists, wrap the streams
+            if(job.get("push.compress") != null) {
+                String compressionString = job.get("push.compress");
+                logger.info("Setup compression " + compressionString
+                            + " for all data and index files");
+
+                CompressionStrategyFactory factory = new CompressionStrategyFactory();
+                Compression compression = new Compression(compressionString, null);
+                CompressionStrategy strategy = factory.get(compression);
+
+                // Wrap the two file streams with the compression stream
+                this.indexFileStream = new DataOutputStream(strategy.wrapOutputStream(this.indexFileStream));
+                this.valueFileStream = new DataOutputStream(strategy.wrapOutputStream(this.valueFileStream));
+            }
 
             logger.info("Opening " + this.taskIndexFileName + " and " + this.taskValueFileName
                         + " for writing.");

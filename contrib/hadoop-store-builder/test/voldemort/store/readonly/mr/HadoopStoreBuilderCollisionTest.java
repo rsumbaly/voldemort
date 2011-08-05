@@ -231,6 +231,7 @@ public class HadoopStoreBuilderCollisionTest {
                                                             new Path(outputDir.getAbsolutePath()),
                                                             new Path(inputFile.getAbsolutePath()),
                                                             CheckSumType.MD5,
+                                                            null,
                                                             true,
                                                             false);
         builder.build();

@@ -19,6 +19,7 @@ public class ReadOnlyStorageMetadata {
     public final static String FORMAT = "format";
     public final static String CHECKSUM_TYPE = "checksum-type";
     public final static String CHECKSUM = "checksum";
+    public final static String COMPRESSION_TYPE = "compression-type";
 
     private Map<String, Object> properties;
 

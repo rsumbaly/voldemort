@@ -39,7 +39,10 @@ import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
 import voldemort.annotations.jmx.JmxGetter;
+import voldemort.serialization.Compression;
 import voldemort.server.protocol.admin.AsyncOperationStatus;
+import voldemort.store.compress.CompressionStrategy;
+import voldemort.store.compress.CompressionStrategyFactory;
 import voldemort.store.readonly.FileFetcher;
 import voldemort.store.readonly.ReadOnlyStorageMetadata;
 import voldemort.store.readonly.checksum.CheckSum;
@@ -129,40 +132,51 @@ public class HdfsFetcher implements FileFetcher {
             Utils.mkdirs(dest);
             FileStatus[] statuses = fs.listStatus(source);
             if(statuses != null) {
-                // sort the files so that index files come last. Maybe
+                // Sort the files so that index files come last. Maybe
                 // this will help keep them cached until the swap
                 Arrays.sort(statuses, new IndexFileLastComparator());
+
+                // The checksum in the file
                 byte[] origCheckSum = null;
+
+                // Type of checksum
                 CheckSumType checkSumType = CheckSumType.NONE;
 
                 // Do a checksum of checksum - Similar to HDFS
                 CheckSum checkSumGenerator = null;
                 CheckSum fileCheckSumGenerator = null;
 
+                // Do we need to uncompress?
+                CompressionStrategy compressionStrategy = null;
+
                 for(FileStatus status: statuses) {
 
-                    // Kept for backwards compatibility
+                    File copyLocation = new File(dest, status.getPath().getName());
+
                     if(status.getPath().getName().contains("checkSum.txt")) {
 
-                        // Ignore old checksum files
+                        // Kept for backwards compatibility - ignore old
+                        // checksum files
 
                     } else if(status.getPath().getName().contains(".metadata")) {
 
-                        logger.debug("Reading .metadata");
-                        // Read metadata into local file
-                        File copyLocation = new File(dest, status.getPath().getName());
-                        copyFileWithCheckSum(fs, status.getPath(), copyLocation, stats, null);
+                        if(logger.isDebugEnabled())
+                            logger.debug("Reading .metadata");
+
+                        // Copy the metadata file
+                        copyFile(fs, status.getPath(), copyLocation, stats, null, null);
 
                         // Open the local file to initialize checksum
                         ReadOnlyStorageMetadata metadata;
                         try {
                             metadata = new ReadOnlyStorageMetadata(copyLocation);
                         } catch(IOException e) {
-                            logger.error("Error reading metadata file ", e);
+                            logger.error("Error reading metadata file from source "
+                                         + source.toString(), e);
                             throw new VoldemortException(e);
                         }
 
-                        // Read checksum
+                        // Check if we have checksum
                         String checkSumTypeString = (String) metadata.get(ReadOnlyStorageMetadata.CHECKSUM_TYPE);
                         String checkSumString = (String) metadata.get(ReadOnlyStorageMetadata.CHECKSUM);
 
@@ -176,27 +190,37 @@ public class HdfsFetcher implements FileFetcher {
                                 continue;
                             }
 
-                            logger.debug("Checksum from .metadata "
-                                         + new String(Hex.encodeHex(origCheckSum)));
                             checkSumType = CheckSum.fromString(checkSumTypeString);
                             checkSumGenerator = CheckSum.getInstance(checkSumType);
                             fileCheckSumGenerator = CheckSum.getInstance(checkSumType);
                         }
 
+                        // Check if we have compression
+                        String compressionString = (String) metadata.get(ReadOnlyStorageMetadata.COMPRESSION_TYPE);
+
+                        if(compressionString != null) {
+
+                            try {
+                                Compression compression = new Compression(compressionString, null);
+                                compressionStrategy = new CompressionStrategyFactory().get(compression);
+                            } catch(Exception e) {
+                                logger.error("Exception generating compression handler", e);
+                                throw new IOException(e);
+                            }
+                        }
+
                     } else if(!status.getPath().getName().startsWith(".")) {
 
                         // Read other (.data , .index files)
-                        File copyLocation = new File(dest, status.getPath().getName());
-                        copyFileWithCheckSum(fs,
-                                             status.getPath(),
-                                             copyLocation,
-                                             stats,
-                                             fileCheckSumGenerator);
+                        copyFile(fs,
+                                 status.getPath(),
+                                 copyLocation,
+                                 stats,
+                                 fileCheckSumGenerator,
+                                 compressionStrategy);
 
                         if(fileCheckSumGenerator != null && checkSumGenerator != null) {
                             byte[] checkSum = fileCheckSumGenerator.getCheckSum();
-                            logger.debug("Checksum for " + status.getPath() + " - "
-                                         + new String(Hex.encodeHex(checkSum)));
                             checkSumGenerator.update(checkSum);
                         }
                     }
@@ -205,6 +229,7 @@ public class HdfsFetcher implements FileFetcher {
 
                 logger.info("Completed reading all files from " + source.toString() + " to "
                             + dest.getAbsolutePath());
+
                 // Check checksum
                 if(checkSumType != CheckSumType.NONE) {
                     byte[] newCheckSum = checkSumGenerator.getCheckSum();
@@ -227,17 +252,24 @@ public class HdfsFetcher implements FileFetcher {
 
     }
 
-    private void copyFileWithCheckSum(FileSystem fs,
-                                      Path source,
-                                      File dest,
-                                      CopyStats stats,
-                                      CheckSum fileCheckSumGenerator) throws IOException {
+    private void copyFile(FileSystem fs,
+                          Path source,
+                          File dest,
+                          CopyStats stats,
+                          CheckSum fileCheckSumGenerator,
+                          CompressionStrategy strategy) throws IOException {
         logger.info("Starting copy of " + source + " to " + dest);
         FSDataInputStream input = null;
         OutputStream output = null;
         try {
             input = fs.open(source);
             output = new FileOutputStream(dest);
+
+            // Wrap it with checksum
+            if(strategy != null) {
+                output = strategy.wrapOutputStream(output);
+            }
+
             byte[] buffer = new byte[bufferSize];
             while(true) {
                 int read = input.read(buffer);

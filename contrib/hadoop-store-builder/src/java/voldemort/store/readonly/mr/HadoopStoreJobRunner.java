@@ -26,6 +26,7 @@ import org.apache.hadoop.util.ToolRunner;
 import org.jdom.JDOMException;
 
 import voldemort.cluster.Cluster;
+import voldemort.serialization.Compression;
 import voldemort.server.VoldemortConfig;
 import voldemort.store.StoreDefinition;
 import voldemort.store.readonly.checksum.CheckSum.CheckSumType;
@@ -74,8 +75,10 @@ public class HadoopStoreJobRunner extends Configured implements Tool {
         parser.accepts("jar", "mapper class jar if not in $HADOOP_CLASSPATH.").withRequiredArg();
         parser.accepts("checksum", "enable checksum using md5, adler32, crc32").withRequiredArg();
         parser.accepts("force-overwrite", "deletes final output directory if present.");
+        parser.accepts("compression", "compress data during push. Uncompress during fetch");
         parser.accepts("save-keys", "save the keys in the data file");
         parser.accepts("reducer-per-bucket", "run single reducer per bucket");
+        parser.accepts("chunks", "number of chunks ( overrides the chunk size )");
         parser.accepts("help", "print usage information");
         return parser;
     }
@@ -127,6 +130,19 @@ public class HadoopStoreJobRunner extends Configured implements Tool {
         boolean saveKeys = options.has("save-keys");
         boolean reducerPerBucket = options.has("reducer-per-bucket");
 
+        // Decide the number of chunks, overrides the chunk size
+        int chunks = -1;
+        if(options.has("chunks")) {
+            chunks = Integer.parseInt((String) options.valueOf("chunks"));
+        }
+
+        // Decide if we need compression
+        Compression compression = null;
+        if(options.has("compression")) {
+            String compressionString = (String) options.valueOf("compression");
+            compression = new Compression(compressionString, null);
+        }
+
         List<String> addJars = new ArrayList<String>();
 
         ClassLoader cl = Thread.currentThread().getContextClassLoader();
@@ -169,18 +185,36 @@ public class HadoopStoreJobRunner extends Configured implements Tool {
 
         addDepJars(conf, deps, addJars);
 
-        HadoopStoreBuilder builder = new HadoopStoreBuilder(conf,
-                                                            mapperClass,
-                                                            inputFormatClass,
-                                                            cluster,
-                                                            storeDef,
-                                                            chunkSizeBytes,
-                                                            tempDir,
-                                                            outputDir,
-                                                            inputPath,
-                                                            checkSumType,
-                                                            saveKeys,
-                                                            reducerPerBucket);
+        HadoopStoreBuilder builder = null;
+        if(chunks == -1) {
+            builder = new HadoopStoreBuilder(conf,
+                                             mapperClass,
+                                             inputFormatClass,
+                                             cluster,
+                                             storeDef,
+                                             chunkSizeBytes,
+                                             tempDir,
+                                             outputDir,
+                                             inputPath,
+                                             checkSumType,
+                                             compression,
+                                             saveKeys,
+                                             reducerPerBucket);
+        } else {
+            builder = new HadoopStoreBuilder(conf,
+                                             mapperClass,
+                                             inputFormatClass,
+                                             cluster,
+                                             storeDef,
+                                             tempDir,
+                                             outputDir,
+                                             inputPath,
+                                             checkSumType,
+                                             compression,
+                                             saveKeys,
+                                             reducerPerBucket,
+                                             chunks);
+        }
 
         builder.build();
         return 0;
