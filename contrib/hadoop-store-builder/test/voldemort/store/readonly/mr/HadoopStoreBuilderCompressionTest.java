@@ -6,10 +6,12 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.TextInputFormat;
+import org.junit.Assert;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -25,9 +27,14 @@ import voldemort.serialization.SerializerDefinition;
 import voldemort.store.StoreDefinition;
 import voldemort.store.StoreDefinitionBuilder;
 import voldemort.store.readonly.ReadOnlyStorageConfiguration;
+import voldemort.store.readonly.ReadOnlyStorageMetadata;
+import voldemort.store.readonly.checksum.CheckSumTests;
 import voldemort.store.readonly.checksum.CheckSum.CheckSumType;
+import voldemort.store.readonly.fetcher.HdfsFetcher;
 import voldemort.store.readonly.mr.HadoopStoreBuilderTest.TextStoreMapper;
+import voldemort.utils.ByteUtils;
 
+@SuppressWarnings("deprecation")
 @RunWith(Parameterized.class)
 public class HadoopStoreBuilderCompressionTest {
 
@@ -51,7 +58,7 @@ public class HadoopStoreBuilderCompressionTest {
         File tempDir = new File(testDir, "temp"), tempDir2 = new File(testDir, "temp2");
         File outputDir = new File(testDir, "output"), outputDir2 = new File(testDir, "output2");
         File storeDir = TestUtils.createTempDir(testDir);
-        for(int i = 0; i < 200; i++)
+        for(int i = 0; i < 400; i++)
             values.put(Integer.toString(i), Integer.toBinaryString(i));
 
         // write test data to text file
@@ -94,6 +101,30 @@ public class HadoopStoreBuilderCompressionTest {
                                                             false);
         builder.build();
 
+        // Check if checkSum is generated in outputDir
+        File nodeFile = new File(outputDir, "node-0");
+
+        // Check if metadata file exists
+        File metadataFile = new File(nodeFile, ".metadata");
+        Assert.assertTrue(metadataFile.exists());
+
+        // Read the metadata
+        ReadOnlyStorageMetadata metadata = new ReadOnlyStorageMetadata(metadataFile);
+
+        // Check contents of checkSum file
+        byte[] md5 = Hex.decodeHex(((String) metadata.get(ReadOnlyStorageMetadata.CHECKSUM)).toCharArray());
+        byte[] checkSumBytes = CheckSumTests.calculateCheckSum(nodeFile.listFiles(),
+                                                               CheckSumType.MD5);
+        Assert.assertEquals(0, ByteUtils.compare(checkSumBytes, md5));
+
+        // check if fetching works
+        HdfsFetcher fetcher = new HdfsFetcher();
+
+        // Fetch to version directory
+        File versionDir = new File(storeDir, "version-0");
+        File fetchedDir1 = fetcher.fetch(nodeFile.getAbsolutePath(), versionDir.getAbsolutePath());
+        Assert.assertTrue(fetchedDir1.getName().compareTo("version-0") == 0);
+
         builder = new HadoopStoreBuilder(new Configuration(),
                                          TextStoreMapper.class,
                                          TextInputFormat.class,
@@ -108,5 +139,22 @@ public class HadoopStoreBuilderCompressionTest {
                                          true,
                                          false);
         builder.build();
+
+        // Fetch to version directory
+        nodeFile = new File(outputDir2, "node-0");
+        versionDir = new File(storeDir, "version-1");
+        File fetchedDir2 = fetcher.fetch(nodeFile.getAbsolutePath(), versionDir.getAbsolutePath());
+        Assert.assertTrue(fetchedDir2.getName().compareTo("version-1") == 0);
+
+        // Make sure all the files ( except metadata ) are same in fetchedDir1
+        // and fetchedDir2
+
+        for(File file: fetchedDir1.listFiles()) {
+            if(!file.getName().contains("metadata")) {
+                File otherFile = new File(fetchedDir2, file.getName());
+                Assert.assertTrue(otherFile.exists());
+                Assert.assertEquals(otherFile.length(), file.length());
+            }
+        }
     }
 }

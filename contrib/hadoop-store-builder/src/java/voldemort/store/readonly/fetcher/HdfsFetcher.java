@@ -19,6 +19,7 @@ package voldemort.store.readonly.fetcher;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.text.NumberFormat;
 import java.util.Arrays;
@@ -31,7 +32,6 @@ import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -259,15 +259,15 @@ public class HdfsFetcher implements FileFetcher {
                           CheckSum fileCheckSumGenerator,
                           CompressionStrategy strategy) throws IOException {
         logger.info("Starting copy of " + source + " to " + dest);
-        FSDataInputStream input = null;
+        InputStream input = null;
         OutputStream output = null;
         try {
             input = fs.open(source);
             output = new FileOutputStream(dest);
 
-            // Wrap it with checksum
+            // Wrap input with checksum
             if(strategy != null) {
-                output = strategy.wrapOutputStream(output);
+                input = strategy.wrapInputStream(input);
             }
 
             byte[] buffer = new byte[bufferSize];
