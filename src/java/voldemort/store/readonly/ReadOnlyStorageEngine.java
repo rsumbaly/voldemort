@@ -41,6 +41,7 @@ import voldemort.store.readonly.chunk.ChunkedFileSet;
 import voldemort.utils.ByteArray;
 import voldemort.utils.ByteUtils;
 import voldemort.utils.ClosableIterator;
+import voldemort.utils.JNAUtils;
 import voldemort.utils.Pair;
 import voldemort.utils.Utils;
 import voldemort.versioning.Version;
@@ -68,6 +69,33 @@ public class ReadOnlyStorageEngine implements StorageEngine<ByteArray, byte[], b
     private volatile boolean isOpen;
     private int deleteBackupMs = 0;
     private long lastSwapped;
+    private boolean readOnlyOptimizeCaching;
+
+    /**
+     * Create an instance of the store
+     * 
+     * @param name The name of the store
+     * @param searchStrategy The algorithm to use for searching for keys
+     * @param routingStrategy The routing strategy used to route keys
+     * @param nodeId Node id
+     * @param storeDir The directory in which the .data and .index files reside
+     * @param numBackups The number of backups of these files to retain
+     * @param deleteBackupMs The time in ms for which we'll wait before we
+     *        delete a backup
+     * @param readOnlyOptimizeCaching Do we want to run read-only caching
+     *        optimizations?
+     */
+    public ReadOnlyStorageEngine(String name,
+                                 SearchStrategy searchStrategy,
+                                 RoutingStrategy routingStrategy,
+                                 int nodeId,
+                                 File storeDir,
+                                 int numBackups,
+                                 int deleteBackupMs,
+                                 boolean readOnlyOptimizeCaching) {
+        this(name, searchStrategy, routingStrategy, nodeId, storeDir, numBackups, deleteBackupMs);
+        this.readOnlyOptimizeCaching = readOnlyOptimizeCaching;
+    }
 
     /**
      * Create an instance of the store
@@ -183,9 +211,12 @@ public class ReadOnlyStorageEngine implements StorageEngine<ByteArray, byte[], b
             // Create symbolic link
             logger.info("Creating symbolic link for '" + getName() + "' using directory "
                         + versionDir.getAbsolutePath());
-            Utils.symlink(versionDir.getAbsolutePath(), storeDir.getAbsolutePath() + File.separator
-                                                        + "latest");
-            this.fileSet = new ChunkedFileSet(versionDir, routingStrategy, nodeId);
+            JNAUtils.createSymlink(versionDir.getAbsolutePath(), storeDir.getAbsolutePath()
+                                                                 + File.separator + "latest");
+            this.fileSet = new ChunkedFileSet(versionDir,
+                                              routingStrategy,
+                                              nodeId,
+                                              readOnlyOptimizeCaching);
             this.lastSwapped = System.currentTimeMillis();
             this.isOpen = true;
         } finally {

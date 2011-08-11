@@ -24,6 +24,7 @@ import voldemort.store.readonly.ReadOnlyStorageMetadata;
 import voldemort.store.readonly.ReadOnlyUtils;
 import voldemort.utils.ByteArray;
 import voldemort.utils.ByteUtils;
+import voldemort.utils.JNAUtils;
 import voldemort.utils.Pair;
 import voldemort.utils.Utils;
 import voldemort.versioning.Versioned;
@@ -51,8 +52,12 @@ public class ChunkedFileSet {
     private ArrayList<Integer> nodePartitionIds;
     private RoutingStrategy routingStrategy;
     private ReadOnlyStorageFormat storageFormat;
+    private boolean readOnlyOptimizeCaching;
 
-    public ChunkedFileSet(File directory, RoutingStrategy routingStrategy, int nodeId) {
+    public ChunkedFileSet(File directory,
+                          RoutingStrategy routingStrategy,
+                          int nodeId,
+                          boolean readOnlyOptimizeCaching) {
         this.baseDir = directory;
         if(!Utils.isReadableDir(directory))
             throw new VoldemortException(directory.getAbsolutePath()
@@ -80,6 +85,7 @@ public class ChunkedFileSet {
         this.chunkIdToChunkStart = new HashMap<Object, Integer>();
         this.chunkIdToNumChunks = new HashMap<Object, Integer>();
         this.nodeId = nodeId;
+        this.readOnlyOptimizeCaching = readOnlyOptimizeCaching;
         setRoutingStrategy(routingStrategy);
 
         switch(storageFormat) {
@@ -361,8 +367,15 @@ public class ChunkedFileSet {
 
     private MappedByteBuffer mapFile(File file) {
         try {
-            FileChannel channel = new FileInputStream(file).getChannel();
+            FileInputStream stream = new FileInputStream(file);
+            FileChannel channel = stream.getChannel();
             MappedByteBuffer buffer = channel.map(MapMode.READ_ONLY, 0, file.length());
+
+            if(readOnlyOptimizeCaching) {
+                // Hint the OS that we need this file to be as hot as possible
+                JNAUtils.enableCaching(stream, file.length());
+            }
+
             channel.close();
             return buffer;
         } catch(IOException e) {
