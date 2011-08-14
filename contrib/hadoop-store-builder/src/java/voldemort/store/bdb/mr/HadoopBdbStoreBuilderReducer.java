@@ -16,8 +16,6 @@
 
 package voldemort.store.bdb.mr;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.Iterator;
@@ -34,11 +32,13 @@ import org.apache.hadoop.mapred.Reporter;
 import org.apache.log4j.Logger;
 
 import voldemort.VoldemortException;
-import voldemort.store.readonly.ReadOnlyUtils;
 import voldemort.utils.ByteUtils;
+import voldemort.utils.Utils;
 
+import com.sleepycat.je.CheckpointConfig;
 import com.sleepycat.je.Database;
 import com.sleepycat.je.DatabaseConfig;
+import com.sleepycat.je.DatabaseEntry;
 import com.sleepycat.je.Environment;
 import com.sleepycat.je.EnvironmentConfig;
 
@@ -51,21 +51,18 @@ public class HadoopBdbStoreBuilderReducer extends AbstractBdbStoreBuilderConfigu
 
     private static final Logger logger = Logger.getLogger(HadoopBdbStoreBuilderReducer.class);
 
-    private String taskId = null;
-
     private int nodeId = -1;
     private int partitionId = -1;
     private int replicaType = -1;
+    private String taskId = null;
 
-    private File tempLocalFile;
+    private File localDirectory;
     private Environment environment;
     private Database database;
 
     private JobConf conf;
 
     private String outputDir;
-
-    private FileSystem fs;
 
     /**
      * Reduce should get sorted MD5 of Voldemort key ( either 16 bytes if saving
@@ -78,14 +75,6 @@ public class HadoopBdbStoreBuilderReducer extends AbstractBdbStoreBuilderConfigu
                        Iterator<BytesWritable> iterator,
                        OutputCollector<Text, Text> output,
                        Reporter reporter) throws IOException {
-
-        // Write key and position
-        this.indexFileStream.write(key.get(), 0, key.getSize());
-        this.indexFileStream.writeInt(this.position);
-
-        short numTuples = 0;
-        ByteArrayOutputStream stream = new ByteArrayOutputStream();
-        DataOutputStream valueStream = new DataOutputStream(stream);
 
         BytesWritable writable = iterator.next();
         byte[] valueBytes = writable.get();
@@ -101,63 +90,32 @@ public class HadoopBdbStoreBuilderReducer extends AbstractBdbStoreBuilderConfigu
             this.partitionId = ByteUtils.readInt(valueBytes, offsetTillNow);
         offsetTillNow += ByteUtils.SIZE_OF_INT;
 
-        // Read chunk id
-        if(this.chunkId == -1)
-            this.chunkId = ReadOnlyUtils.chunk(key.get(), getNumChunks());
-
         // Read replica type
-        if(getSaveKeys()) {
-            if(this.replicaType == -1)
-                this.replicaType = (int) ByteUtils.readBytes(valueBytes,
-                                                             offsetTillNow,
-                                                             ByteUtils.SIZE_OF_BYTE);
-            offsetTillNow += ByteUtils.SIZE_OF_BYTE;
-        }
+        if(this.replicaType == -1)
+            this.replicaType = (int) ByteUtils.readBytes(valueBytes,
+                                                         offsetTillNow,
+                                                         ByteUtils.SIZE_OF_BYTE);
+        offsetTillNow += ByteUtils.SIZE_OF_BYTE;
 
-        int valueLength = writable.getSize() - offsetTillNow;
-        if(getSaveKeys()) {
-            // Write ( key_length, value_length, key,
-            // value )
-            valueStream.write(valueBytes, offsetTillNow, valueLength);
-        } else {
-            // Write (value_length + value)
-            valueStream.writeInt(valueLength);
-            valueStream.write(valueBytes, offsetTillNow, valueLength);
-        }
+        int keySize = ByteUtils.readInt(valueBytes, offsetTillNow);
+        offsetTillNow += ByteUtils.SIZE_OF_INT;
 
-        numTuples++;
+        int valueSize = ByteUtils.readInt(valueBytes, offsetTillNow);
+        offsetTillNow += ByteUtils.SIZE_OF_INT;
 
-        // If we have multiple values for this md5 that is a collision,
-        // throw an exception--either the data itself has duplicates, there
-        // are trillions of keys, or someone is attempting something
-        // malicious ( We obviously expect collisions when we save keys )
-        if(!getSaveKeys() && numTuples > 1)
+        byte[] finalKeyBytes = ByteUtils.copy(valueBytes, offsetTillNow, offsetTillNow + keySize);
+        offsetTillNow += keySize;
+
+        byte[] finalValueBytes = ByteUtils.copy(valueBytes, offsetTillNow, offsetTillNow
+                                                                           + valueSize);
+
+        if(iterator.hasNext())
             throw new VoldemortException("Duplicate keys detected for md5 sum "
                                          + ByteUtils.toHexString(ByteUtils.copy(key.get(),
                                                                                 0,
                                                                                 key.getSize())));
 
-        if(iterator.hasNext())
-            // Overflow
-            throw new VoldemortException("Found too many collisions: chunk " + chunkId
-                                         + " has exceeded " + Short.MAX_VALUE + " collisions.");
-
-        // Flush the value
-        valueStream.flush();
-        byte[] value = stream.toByteArray();
-
-        // Start writing to file now
-        // First, if save keys flag set the number of keys
-        if(getSaveKeys()) {
-
-            this.valueFileStream.writeShort(numTuples);
-            this.position += ByteUtils.SIZE_OF_SHORT;
-
-        }
-
-        this.valueFileStream.write(value);
-        this.position += value.length;
-
+        database.put(null, new DatabaseEntry(finalKeyBytes), new DatabaseEntry(finalValueBytes));
     }
 
     /**
@@ -167,8 +125,8 @@ public class HadoopBdbStoreBuilderReducer extends AbstractBdbStoreBuilderConfigu
      * @return The temporary directory
      */
     public File createTempDir() {
-        File temp = new File(System.getProperty("java.io.tmpdir",
-                                                Integer.toString(Math.abs(new Random().nextInt()) % 1000000)));
+        File temp = new File(System.getProperty("java.io.tmpdir"),
+                             Integer.toString(new Random().nextInt()));
         temp.delete();
         temp.mkdir();
         temp.deleteOnExit();
@@ -183,8 +141,13 @@ public class HadoopBdbStoreBuilderReducer extends AbstractBdbStoreBuilderConfigu
         this.taskId = job.get("mapred.task.id");
 
         // Create local file for environment
-        this.tempLocalFile = createTempDir();
+        File tempLocalFile = createTempDir();
 
+        // Create data-base directory
+        this.localDirectory = new File(tempLocalFile, this.taskId);
+        Utils.mkdirs(localDirectory);
+
+        // Create directory for
         // Set the environment config
         EnvironmentConfig environmentConfig = new EnvironmentConfig();
         environmentConfig.setConfigParam(EnvironmentConfig.CLEANER_MIN_UTILIZATION,
@@ -202,57 +165,66 @@ public class HadoopBdbStoreBuilderReducer extends AbstractBdbStoreBuilderConfigu
         dbConfig.setDeferredWrite(true);
 
         // Open the environment
-        environment = new Environment(tempLocalFile, environmentConfig);
+        environment = new Environment(localDirectory, environmentConfig);
 
         // Open the DB
         database = environment.openDatabase(null, "voldemort", dbConfig);
 
-        logger.info("Opened database at local location " + tempLocalFile);
+        logger.info("Opened database at local location " + localDirectory);
     }
 
     @Override
     public void close() throws IOException {
 
-        this.indexFileStream.close();
-        this.valueFileStream.close();
-
-        if(this.nodeId == -1 || this.chunkId == -1 || this.partitionId == -1) {
+        if(this.nodeId == -1 && this.replicaType == -1 && this.partitionId == -1) {
             // Issue 258 - No data was read in the reduce phase, do not create
             // any output
             return;
         }
 
-        // If the replica type read was not valid, shout out
-        if(getSaveKeys() && this.replicaType == -1) {
-            throw new RuntimeException("Could not read the replica type correctly for node "
-                                       + nodeId + " ( partition - " + this.partitionId + " )");
+        // Flush and close the BDB environment
+        logger.info("Syncing environment at " + environment.getHome().getPath());
+        environment.sync();
+        logger.info("Done syncing environment at " + environment.getHome().getPath());
+
+        logger.info("Cleaning environment log at " + environment.getHome().getPath());
+        boolean anyCleaned = false;
+        while(environment.cleanLog() > 0) {
+            anyCleaned = true;
+        }
+        logger.info("Done cleaning environment log at " + environment.getHome().getPath());
+        if(anyCleaned) {
+            logger.info("Checkpointing environment at " + environment.getHome().getPath());
+            CheckpointConfig checkpoint = new CheckpointConfig();
+            checkpoint.setForce(true);
+            environment.checkpoint(checkpoint);
+            logger.info("Done checkpointing environment at " + environment.getHome().getPath());
         }
 
-        String fileNamePrefix = null;
-        if(getSaveKeys()) {
-            fileNamePrefix = new String(Integer.toString(this.partitionId) + "_"
-                                        + Integer.toString(this.replicaType) + "_"
-                                        + Integer.toString(this.chunkId));
-        } else {
-            fileNamePrefix = new String(Integer.toString(this.partitionId) + "_"
-                                        + Integer.toString(this.chunkId));
-        }
+        database.close();
+        environment.close();
 
         // Initialize the node directory
         Path nodeDir = new Path(this.outputDir, "node-" + this.nodeId);
+
+        // Initialize the partition folder
+        Path partitionDir = new Path(nodeDir, new String(Integer.toString(this.partitionId) + "_"
+                                                         + Integer.toString(this.replicaType)));
 
         // Create output directory, if it doesn't exist
         FileSystem outputFs = nodeDir.getFileSystem(this.conf);
         outputFs.mkdirs(nodeDir);
 
-        // Generate the final chunk files
-        Path indexFile = new Path(nodeDir, fileNamePrefix + ".index");
-        Path valueFile = new Path(nodeDir, fileNamePrefix + ".data");
+        // Create the partition folder
+        outputFs.mkdirs(partitionDir);
 
-        logger.info("Moving " + this.taskIndexFileName + " to " + indexFile);
-        outputFs.rename(taskIndexFileName, indexFile);
-        logger.info("Moving " + this.taskValueFileName + " to " + valueFile);
-        outputFs.rename(this.taskValueFileName, valueFile);
+        logger.info("Final output directory - " + partitionDir);
+
+        // Local path
+        Path localPath = new Path(localDirectory.getAbsolutePath());
+
+        logger.info("Moving " + localPath + " to " + partitionDir);
+        outputFs.copyFromLocalFile(localPath, partitionDir);
 
     }
 }
