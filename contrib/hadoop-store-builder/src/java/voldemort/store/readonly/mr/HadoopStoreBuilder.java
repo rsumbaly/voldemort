@@ -176,6 +176,101 @@ public class HadoopStoreBuilder {
      * @param outputDir The directory in which to place the built stores
      * @param inputPath The path from which to read input data
      * @param checkSumType The checksum algorithm to use
+     * @param saveKeys Boolean to signify if we want to save the key as well
+     * @param reducerPerBucket Boolean to signify whether we want to have a
+     *        single reducer for a bucket ( thereby resulting in all chunk files
+     *        for a bucket being generated in a single reducer )
+     */
+    @SuppressWarnings("unchecked")
+    public HadoopStoreBuilder(Configuration conf,
+                              Class<? extends AbstractHadoopStoreBuilderMapper<?, ?>> mapperClass,
+                              Class<? extends InputFormat> inputFormatClass,
+                              Cluster cluster,
+                              StoreDefinition storeDef,
+                              long chunkSizeBytes,
+                              Path tempDir,
+                              Path outputDir,
+                              Path inputPath,
+                              CheckSumType checkSumType,
+                              boolean saveKeys,
+                              boolean reducerPerBucket) {
+        this(conf,
+             mapperClass,
+             inputFormatClass,
+             cluster,
+             storeDef,
+             chunkSizeBytes,
+             tempDir,
+             outputDir,
+             inputPath,
+             checkSumType,
+             null,
+             saveKeys,
+             reducerPerBucket);
+    }
+
+    /**
+     * Create the store builder
+     * 
+     * @param conf A base configuration to start with
+     * @param mapperClass The class to use as the mapper
+     * @param inputFormatClass The input format to use for reading values
+     * @param cluster The voldemort cluster for which the stores are being built
+     * @param storeDef The store definition of the store
+     * @param tempDir The temporary directory to use in hadoop for intermediate
+     *        reducer output
+     * @param outputDir The directory in which to place the built stores
+     * @param inputPath The path from which to read input data
+     * @param checkSumType The checksum algorithm to use
+     * @param saveKeys Boolean to signify if we want to save the key as well
+     * @param reducerPerBucket Boolean to signify whether we want to have a
+     *        single reducer for a bucket ( thereby resulting in all chunk files
+     *        for a bucket being generated in a single reducer )
+     * @param numChunks Number of chunks per bucket ( partition or partition
+     *        replica )
+     */
+    @SuppressWarnings("unchecked")
+    public HadoopStoreBuilder(Configuration conf,
+                              Class<? extends AbstractHadoopStoreBuilderMapper<?, ?>> mapperClass,
+                              Class<? extends InputFormat> inputFormatClass,
+                              Cluster cluster,
+                              StoreDefinition storeDef,
+                              Path tempDir,
+                              Path outputDir,
+                              Path inputPath,
+                              CheckSumType checkSumType,
+                              boolean saveKeys,
+                              boolean reducerPerBucket,
+                              int numChunks) {
+        this(conf,
+             mapperClass,
+             inputFormatClass,
+             cluster,
+             storeDef,
+             tempDir,
+             outputDir,
+             inputPath,
+             checkSumType,
+             null,
+             saveKeys,
+             reducerPerBucket,
+             numChunks);
+    }
+
+    /**
+     * Create the store builder
+     * 
+     * @param conf A base configuration to start with
+     * @param mapperClass The class to use as the mapper
+     * @param inputFormatClass The input format to use for reading values
+     * @param cluster The voldemort cluster for which the stores are being built
+     * @param storeDef The store definition of the store
+     * @param chunkSizeBytes The size of the chunks used by the read-only store
+     * @param tempDir The temporary directory to use in hadoop for intermediate
+     *        reducer output
+     * @param outputDir The directory in which to place the built stores
+     * @param inputPath The path from which to read input data
+     * @param checkSumType The checksum algorithm to use
      */
     @SuppressWarnings("unchecked")
     public HadoopStoreBuilder(Configuration conf,
