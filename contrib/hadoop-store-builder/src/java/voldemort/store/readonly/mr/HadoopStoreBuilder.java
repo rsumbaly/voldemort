@@ -65,6 +65,7 @@ public class HadoopStoreBuilder {
     public static final long MIN_CHUNK_SIZE = 1L;
     public static final long MAX_CHUNK_SIZE = (long) (1.9 * 1024 * 1024 * 1024);
     public static final int DEFAULT_BUFFER_SIZE = 64 * 1024;
+    public static final int NUM_ATTEMPTS = 2;
 
     private static final Logger logger = Logger.getLogger(HadoopStoreBuilder.class);
 
@@ -525,10 +526,11 @@ public class HadoopStoreBuilder {
                     logger.error("Got exception during attempt " + attemptId
                                  + ". Trying again with chunks = " + (numChunks + 1), e);
                     attemptId++;
-                    if(attemptId < 3) {
+                    if(attemptId <= NUM_ATTEMPTS) {
                         tryAgain = true;
                     } else {
-                        logger.error("Completed 3 attempts. Failing the full job");
+                        logger.error("Completed " + NUM_ATTEMPTS
+                                     + " attempts. Failing the full job");
                         throw e;
                     }
                 }
