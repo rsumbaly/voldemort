@@ -92,9 +92,10 @@ public class Benchmark {
     public static final String TARGET_THROUGHPUT = "target-throughput";
     public static final String HELP = "help";
     public static final String STORE_NAME = "store-name";
-    public static final String RECORD_COUNT = "record-count";
     public static final String PLUGIN_CLASS = "plugin-class";
+    public static final String RECORD_COUNT = "record-count";
     public static final String OPS_COUNT = "ops-count";
+    public static final String WARMUP_FLAG = "warmup";
 
     public static final String METRIC_TYPE = "metric-type";
     public static final String HISTOGRAM_METRIC_TYPE = "histogram";
@@ -122,15 +123,18 @@ public class Benchmark {
     private boolean warmUpCompleted = false;
     private boolean verifyRead = false;
     private boolean ignoreNulls = false;
+    private boolean runWarmUp = false;
     private String keyType;
 
     class StatusThread extends Thread {
 
+        private String label;
         private Vector<Thread> threads;
         private int intervalSec;
         private long startTime;
 
-        public StatusThread(Vector<Thread> threads, int intervalSec, long startTime) {
+        public StatusThread(String label, Vector<Thread> threads, int intervalSec, long startTime) {
+            this.label = label;
             this.threads = threads;
             this.intervalSec = intervalSec;
             this.startTime = startTime;
@@ -151,7 +155,9 @@ public class Benchmark {
                 }
 
                 if(totalOps != 0 && totalOps != prevTotalOps) {
-                    System.out.println("[status]\tThroughput(ops/sec): "
+                    System.out.println("["
+                                       + label
+                                       + "]\tThroughput(ops/sec): "
                                        + Time.MS_PER_SECOND
                                        * ((double) totalOps / (double) (System.currentTimeMillis() - startTime))
                                        + "\tOperations: " + totalOps);
@@ -298,6 +304,7 @@ public class Benchmark {
         }
         this.recordCount = workloadProps.getInt(RECORD_COUNT, -1);
         this.pluginName = workloadProps.getString(PLUGIN_CLASS, null);
+        this.runWarmUp = workloadProps.getBoolean(WARMUP_FLAG, false);
 
         // Initialize measurement
         Metrics.setProperties(workloadProps);
@@ -329,8 +336,6 @@ public class Benchmark {
             this.storeName = benchmarkProps.getString(STORE_NAME);
 
             ClientConfig clientConfig = new ClientConfig().setMaxThreads(numThreads)
-                                                          .setMaxTotalConnections(numThreads)
-                                                          .setMaxConnectionsPerNode(numThreads)
                                                           .setBootstrapUrls(socketUrl);
 
             if(clientZoneId >= 0) {
@@ -383,7 +388,7 @@ public class Benchmark {
     }
 
     public void warmUpAndRun() throws Exception {
-        if(this.recordCount > 0) {
+        if(runWarmUp) {
             System.out.println("--- Running warmup");
             runTests(false);
             this.warmUpCompleted = true;
@@ -442,7 +447,10 @@ public class Benchmark {
 
         StatusThread statusThread = null;
         if(this.statusIntervalSec > 0) {
-            statusThread = new StatusThread(threads, this.statusIntervalSec, startRunBenchmark);
+            statusThread = new StatusThread(label,
+                                            threads,
+                                            this.statusIntervalSec,
+                                            startRunBenchmark);
             statusThread.start();
         }
 
@@ -563,6 +571,7 @@ public class Benchmark {
               .withRequiredArg()
               .describedAs("zone-id")
               .ofType(Integer.class);
+        parser.accepts(WARMUP_FLAG, "Should we run warmup or not?");
         parser.accepts(HELP);
 
         OptionSet options = parser.parse(args);
@@ -573,7 +582,9 @@ public class Benchmark {
         }
 
         Props mainProps = null;
+
         if(options.has(PROP_FILE)) {
+            // If has a file, read that
             String propFileDestination = (String) options.valueOf(PROP_FILE);
             File propertyFile = new File(propFileDestination);
             if(!propertyFile.exists()) {
@@ -585,7 +596,9 @@ public class Benchmark {
             } catch(Exception e) {
                 printUsage(parser, "Unable to parse the property file");
             }
+
         } else {
+            // Else parse manually
             mainProps = new Props();
 
             if(options.has(REQUEST_FILE)) {
@@ -623,6 +636,7 @@ public class Benchmark {
                                                BdbStorageConfiguration.class.getName()));
             }
 
+            mainProps.put(WARMUP_FLAG, getCmdBoolean(options, WARMUP_FLAG));
             mainProps.put(VERIFY, getCmdBoolean(options, VERIFY));
             mainProps.put(IGNORE_NULLS, getCmdBoolean(options, IGNORE_NULLS));
             mainProps.put(CLIENT_ZONE_ID, CmdUtils.valueOf(options, CLIENT_ZONE_ID, -1));
