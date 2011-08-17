@@ -64,7 +64,6 @@ public class Benchmark {
      */
     public static final String PROP_FILE = "prop-file";
     public static final String THREADS = "threads";
-    public static final String ITERATIONS = "iterations";
     public static final String STORAGE_CONFIGURATION_CLASS = "storage-configuration-class";
     public static final String INTERVAL = "interval";
 
@@ -75,7 +74,6 @@ public class Benchmark {
     public static final String IDENTITY_KEY_TYPE = "identity";
 
     public static final String URL = "url";
-    public static final String PERCENT_CACHED = "percent-cached";
     public static final String VALUE_SIZE = "value-size";
     public static final String IGNORE_NULLS = "ignore-nulls";
     public static final String REQUEST_FILE = "request-file";
@@ -88,7 +86,6 @@ public class Benchmark {
 
     public static final String RECORD_SELECTION = "record-selection";
     public static final String ZIPFIAN_RECORD_SELECTION = "zipfian";
-    public static final String LATEST_RECORD_SELECTION = "latest";
     public static final String FILE_RECORD_SELECTION = "file";
     public static final String UNIFORM_RECORD_SELECTION = "uniform";
 
@@ -103,7 +100,6 @@ public class Benchmark {
     public static final String HISTOGRAM_METRIC_TYPE = "histogram";
     public static final String SUMMARY_METRIC_TYPE = "summary";
 
-    public static final String VERBOSE = "v";
     public static final String VERIFY = "verify";
     public static final String CLIENT_ZONE_ID = "client-zoneid";
     private static final String DUMMY_DB = "benchmark_db";
@@ -111,17 +107,19 @@ public class Benchmark {
     public static final String VIEW_CLASS = "voldemort.store.views.UpperCaseView";
     public static final String HAS_TRANSFORMS = "true";
 
-    private StoreClient<Object, Object> storeClient;
     private StoreClientFactory factory;
+    private String storeName = DUMMY_DB;
 
-    private int numThreads, numIterations, targetThroughput, recordCount, opsCount,
-            statusIntervalSec;
+    private int numThreads;
+    private int targetThroughput;
+    private int recordCount;
+    private int opsCount;
+    private int statusIntervalSec;
     private double perThreadThroughputPerMs;
     private Workload workLoad;
     private String pluginName;
     private boolean storeInitialized = false;
     private boolean warmUpCompleted = false;
-    private boolean verbose = false;
     private boolean verifyRead = false;
     private boolean ignoreNulls = false;
     private String keyType;
@@ -170,7 +168,6 @@ public class Benchmark {
 
         private VoldemortWrapper db;
         private boolean runBenchmark;
-        private boolean isVerbose;
         private Workload clientWorkLoad;
         private int operationsCount;
         private double targetThroughputPerMs;
@@ -182,7 +179,6 @@ public class Benchmark {
                             Workload workLoad,
                             int operationsCount,
                             double targetThroughputPerMs,
-                            boolean isVerbose,
                             WorkloadPlugin plugin) {
             this.db = db;
             this.runBenchmark = runBenchmark;
@@ -190,7 +186,6 @@ public class Benchmark {
             this.operationsCount = operationsCount;
             this.opsDone = 0;
             this.targetThroughputPerMs = targetThroughputPerMs;
-            this.isVerbose = isVerbose;
             this.plugin = plugin;
         }
 
@@ -213,8 +208,7 @@ public class Benchmark {
                         }
                     }
                 } catch(Exception e) {
-                    if(this.isVerbose)
-                        e.printStackTrace();
+                    System.err.println("Exception inside client thread - " + e.getMessage());
                 }
                 opsDone++;
                 if(targetThroughputPerMs > 0) {
@@ -240,6 +234,11 @@ public class Benchmark {
                 storeDef = storeDefinition;
             }
         }
+
+        if(storeDef == null) {
+            throw new VoldemortException("Could not find store definition for store name "
+                                         + storeName);
+        }
         return storeDef;
     }
 
@@ -249,18 +248,20 @@ public class Benchmark {
             if("string".equals(serializerDefinition.getName())) {
                 return Benchmark.STRING_KEY_TYPE;
             } else if("json".equals(serializerDefinition.getName())) {
-                if(serializerDefinition.getCurrentSchemaInfo().contains("int")) {
+                if(serializerDefinition.getCurrentSchemaInfo().compareTo("\"int32\"") == 0) {
                     return Benchmark.JSONINT_KEY_TYPE;
-                } else if(serializerDefinition.getCurrentSchemaInfo().contains("string")) {
+                } else if(serializerDefinition.getCurrentSchemaInfo().compareTo("\"string\"") == 0) {
                     return Benchmark.JSONSTRING_KEY_TYPE;
+                } else {
+                    throw new VoldemortException("Unsupported binary json schema type. Support only for \"int32\" and \"string\"");
                 }
             } else if("identity".equals(serializerDefinition.getName())) {
                 return Benchmark.IDENTITY_KEY_TYPE;
             }
         }
 
-        throw new Exception("Can't determine key type for key serializer "
-                            + storeDefinition.getName());
+        throw new VoldemortException("Can't determine key type for key serializer "
+                                     + storeDefinition.getName());
     }
 
     public Serializer<?> findKeyType(String keyType) throws Exception {
@@ -312,9 +313,7 @@ public class Benchmark {
     public void initializeStore(Props benchmarkProps) throws Exception {
 
         this.numThreads = benchmarkProps.getInt(THREADS, MAX_WORKERS);
-        this.numIterations = benchmarkProps.getInt(ITERATIONS, 1);
         this.statusIntervalSec = benchmarkProps.getInt(INTERVAL, 0);
-        this.verbose = benchmarkProps.getBoolean(VERBOSE, false);
         this.verifyRead = benchmarkProps.getBoolean(VERIFY, false);
         this.ignoreNulls = benchmarkProps.getBoolean(IGNORE_NULLS, false);
         int clientZoneId = benchmarkProps.getInt(CLIENT_ZONE_ID, -1);
@@ -327,7 +326,7 @@ public class Benchmark {
             }
 
             String socketUrl = benchmarkProps.getString(URL);
-            String storeName = benchmarkProps.getString(STORE_NAME);
+            this.storeName = benchmarkProps.getString(STORE_NAME);
 
             ClientConfig clientConfig = new ClientConfig().setMaxThreads(numThreads)
                                                           .setMaxTotalConnections(numThreads)
@@ -338,12 +337,10 @@ public class Benchmark {
                 clientConfig.setClientZoneId(clientZoneId);
             }
             SocketStoreClientFactory socketFactory = new SocketStoreClientFactory(clientConfig);
-            this.storeClient = socketFactory.getStoreClient(storeName);
             StoreDefinition storeDef = getStoreDefinition(socketFactory, storeName);
+            this.factory = socketFactory;
             this.keyType = findKeyType(storeDef);
             benchmarkProps.put(Benchmark.KEY_TYPE, this.keyType);
-            this.factory = socketFactory;
-
         } else {
 
             // Local benchmark
@@ -373,7 +370,6 @@ public class Benchmark {
                                           new IdentitySerializer());
 
             this.factory = new StaticStoreClientFactory(store);
-            this.storeClient = factory.getStoreClient(store.getName());
         }
 
         this.storeInitialized = true;
@@ -388,18 +384,15 @@ public class Benchmark {
 
     public void warmUpAndRun() throws Exception {
         if(this.recordCount > 0) {
-            System.out.println("Running warmup");
+            System.out.println("--- Running warmup");
             runTests(false);
             this.warmUpCompleted = true;
             Metrics.getInstance().reset();
         }
 
-        for(int index = 0; index < this.numIterations; index++) {
-            System.out.println("======================= iteration = " + index
-                               + " ======================================");
-            runTests(true);
-            Metrics.getInstance().reset();
-        }
+        System.out.println("--- Running real test");
+        runTests(true);
+        Metrics.getInstance().reset();
 
     }
 
@@ -418,6 +411,7 @@ public class Benchmark {
         Vector<Thread> threads = new Vector<Thread>();
 
         for(int index = 0; index < this.numThreads; index++) {
+            StoreClient<Object, Object> storeClient = factory.getStoreClient(storeName);
             VoldemortWrapper db = new VoldemortWrapper(storeClient,
                                                        this.verifyRead && this.warmUpCompleted,
                                                        this.ignoreNulls);
@@ -426,12 +420,9 @@ public class Benchmark {
                 Class<?> cls = Class.forName(this.pluginName);
                 try {
                     plugin = (WorkloadPlugin) cls.newInstance();
-                } catch(IllegalAccessException e) {
-                    System.err.println("Class not accessible ");
-                    System.exit(1);
-                } catch(InstantiationException e) {
-                    System.err.println("Class not instantiable.");
-                    System.exit(1);
+                } catch(Exception e) {
+                    System.err.println("Could not access class with name " + pluginName);
+                    throw e;
                 }
                 plugin.setDb(db);
             }
@@ -441,7 +432,6 @@ public class Benchmark {
                                          this.workLoad,
                                          localOpsCounts / this.numThreads,
                                          this.perThreadThroughputPerMs,
-                                         this.verbose,
                                          plugin));
         }
 
@@ -460,8 +450,8 @@ public class Benchmark {
             try {
                 currentThread.join();
             } catch(InterruptedException e) {
-                if(this.verbose)
-                    e.printStackTrace();
+                System.err.println("Got interrupted exception during shutdown of client thread "
+                                   + e.getMessage());
             }
         }
         long endRunBenchmark = System.currentTimeMillis();
@@ -490,42 +480,32 @@ public class Benchmark {
     public static void main(String args[]) throws IOException {
         // Logger.getRootLogger().removeAllAppenders();
         OptionParser parser = new OptionParser();
-        parser.accepts(READS, "percentage of --ops-count to be reads; valid values [0-100]")
+        parser.accepts(READS, "Percentage of --ops-count to be reads; valid values [0-100]")
               .withRequiredArg()
               .describedAs("read-percent")
               .ofType(Integer.class);
-        parser.accepts(WRITES, "percentage of --ops-count to be writes; valid values [0-100]")
+        parser.accepts(WRITES, "Percentage of --ops-count to be writes; valid values [0-100]")
               .withRequiredArg()
               .describedAs("write-percent")
               .ofType(Integer.class);
-        parser.accepts(DELETES, "percentage of --ops-count to be deletes; valid values [0-100]")
+        parser.accepts(DELETES, "Percentage of --ops-count to be deletes; valid values [0-100]")
               .withRequiredArg()
               .describedAs("delete-percent")
               .ofType(Integer.class);
-        parser.accepts(MIXED, "percentage of --ops-count to be updates; valid values [0-100]")
+        parser.accepts(MIXED, "Percentage of --ops-count to be updates; valid values [0-100]")
               .withRequiredArg()
               .describedAs("update-percent")
               .ofType(Integer.class);
-        parser.accepts(VERBOSE, "verbose");
-        parser.accepts(THREADS, "max number concurrent worker threads; Default = " + MAX_WORKERS)
+        parser.accepts(THREADS, "Max number concurrent worker threads; Default = " + MAX_WORKERS)
               .withRequiredArg()
               .describedAs("num-threads")
               .ofType(Integer.class);
-        parser.accepts(ITERATIONS, "number of times to repeat benchmark phase; Default = 1")
-              .withRequiredArg()
-              .describedAs("num-iter")
-              .ofType(Integer.class);
-        parser.accepts(VERIFY, "verify values read; runs only if warm-up phase is included");
-        parser.accepts(PERCENT_CACHED,
-                       "percentage of requests to come from previously requested keys; valid values are in range [0..100]; 0 means caching disabled. Default = 0")
-              .withRequiredArg()
-              .describedAs("percent")
-              .ofType(Integer.class);
+        parser.accepts(VERIFY, "Verify values read; runs only if warm-up phase is included");
         parser.accepts(START_KEY_INDEX, "key index to start warm-up phase from; Default = 0")
               .withRequiredArg()
               .describedAs("index")
               .ofType(Integer.class);
-        parser.accepts(INTERVAL, "print status at interval seconds; Default = 0")
+        parser.accepts(INTERVAL, "print status at interval seconds; Default = 5 seconds")
               .withRequiredArg()
               .describedAs("sec")
               .ofType(Integer.class);
@@ -554,22 +534,22 @@ public class Benchmark {
               .ofType(Integer.class);
         parser.accepts(RECORD_SELECTION,
                        "record selection distribution [ " + ZIPFIAN_RECORD_SELECTION + " | "
-                               + LATEST_RECORD_SELECTION + " | " + UNIFORM_RECORD_SELECTION
-                               + " <default> ]").withRequiredArg();
-        parser.accepts(TARGET_THROUGHPUT, "fix throughput")
+                               + UNIFORM_RECORD_SELECTION + " <default> ]").withRequiredArg();
+        parser.accepts(TARGET_THROUGHPUT, "Fixed throughput")
               .withRequiredArg()
               .describedAs("ops/sec")
               .ofType(Integer.class);
-        parser.accepts(RECORD_COUNT, "number of records inserted during warmup phase")
+        parser.accepts(RECORD_COUNT,
+                       "Number of records that the store contains. Also used during warm-up phase")
               .withRequiredArg()
               .describedAs("count")
               .ofType(Integer.class);
-        parser.accepts(OPS_COUNT, "number of operations to do during benchmark phase")
+        parser.accepts(OPS_COUNT, "Number of operations to do during benchmark phase")
               .withRequiredArg()
               .describedAs("count")
               .ofType(Integer.class);
-        parser.accepts(URL, "for remote tests; url of remote server").withRequiredArg();
-        parser.accepts(STORE_NAME, "for remote tests; store name on the remote " + URL)
+        parser.accepts(URL, "For remote tests, url of remote server").withRequiredArg();
+        parser.accepts(STORE_NAME, "For remote tests, store name on the remote " + URL)
               .withRequiredArg()
               .describedAs("name");
         parser.accepts(METRIC_TYPE,
@@ -643,16 +623,13 @@ public class Benchmark {
                                                BdbStorageConfiguration.class.getName()));
             }
 
-            mainProps.put(VERBOSE, getCmdBoolean(options, VERBOSE));
             mainProps.put(VERIFY, getCmdBoolean(options, VERIFY));
             mainProps.put(IGNORE_NULLS, getCmdBoolean(options, IGNORE_NULLS));
             mainProps.put(CLIENT_ZONE_ID, CmdUtils.valueOf(options, CLIENT_ZONE_ID, -1));
             mainProps.put(START_KEY_INDEX, CmdUtils.valueOf(options, START_KEY_INDEX, 0));
             mainProps.put(VALUE_SIZE, CmdUtils.valueOf(options, VALUE_SIZE, 1024));
-            mainProps.put(ITERATIONS, CmdUtils.valueOf(options, ITERATIONS, 1));
             mainProps.put(THREADS, CmdUtils.valueOf(options, THREADS, MAX_WORKERS));
-            mainProps.put(PERCENT_CACHED, CmdUtils.valueOf(options, PERCENT_CACHED, 0));
-            mainProps.put(INTERVAL, CmdUtils.valueOf(options, INTERVAL, 0));
+            mainProps.put(INTERVAL, CmdUtils.valueOf(options, INTERVAL, 5));
             mainProps.put(TARGET_THROUGHPUT, CmdUtils.valueOf(options, TARGET_THROUGHPUT, -1));
             mainProps.put(METRIC_TYPE, CmdUtils.valueOf(options, METRIC_TYPE, SUMMARY_METRIC_TYPE));
             mainProps.put(READS, CmdUtils.valueOf(options, READS, 0));
@@ -670,9 +647,7 @@ public class Benchmark {
             benchmark.warmUpAndRun();
             benchmark.close();
         } catch(Exception e) {
-            if(options.has(VERBOSE)) {
-                e.printStackTrace();
-            }
+            e.printStackTrace();
             parser.printHelpOn(System.err);
             System.exit(-1);
         }

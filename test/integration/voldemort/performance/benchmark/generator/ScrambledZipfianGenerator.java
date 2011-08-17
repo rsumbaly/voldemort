@@ -29,7 +29,8 @@ import voldemort.utils.FnvHashFunction;
  */
 public class ScrambledZipfianGenerator extends IntegerGenerator {
 
-    public static final double ZETAN = 52.93805640344461;
+    public static final double ZETAN = 26.46902820178302;
+    public static final double USED_ZIPFIAN_CONSTANT = 0.99;
     public static final long ITEM_COUNT = 10000000000L;
 
     private ZipfianGenerator generator;
@@ -48,8 +49,12 @@ public class ScrambledZipfianGenerator extends IntegerGenerator {
         this.min = min;
         this.max = max;
         this.itemCount = this.max - this.min + 1;
-        generator = new ZipfianGenerator(0, ITEM_COUNT, zipfianConstant, ZETAN);
-        hash = new FnvHashFunction();
+        if(zipfianConstant == USED_ZIPFIAN_CONSTANT) {
+            this.generator = new ZipfianGenerator(0, ITEM_COUNT, zipfianConstant, ZETAN);
+        } else {
+            this.generator = new ZipfianGenerator(0, ITEM_COUNT, zipfianConstant);
+        }
+        this.hash = new FnvHashFunction();
     }
 
     @Override

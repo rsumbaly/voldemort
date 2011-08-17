@@ -23,10 +23,6 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import org.apache.log4j.Logger;
 
 import voldemort.TestUtils;
 import voldemort.performance.benchmark.generator.CounterGenerator;
@@ -34,14 +30,11 @@ import voldemort.performance.benchmark.generator.DiscreteGenerator;
 import voldemort.performance.benchmark.generator.FileIntegerGenerator;
 import voldemort.performance.benchmark.generator.IntegerGenerator;
 import voldemort.performance.benchmark.generator.ScrambledZipfianGenerator;
-import voldemort.performance.benchmark.generator.SkewedLatestGenerator;
 import voldemort.performance.benchmark.generator.UniformIntegerGenerator;
 import voldemort.utils.Props;
 import voldemort.utils.UndefinedPropertyException;
 
 public class Workload {
-
-    private static Logger logger = Logger.getLogger(Workload.class);
 
     public interface KeyProvider<T> {
 
@@ -50,7 +43,6 @@ public class Workload {
         public T next(int maxNumber);
 
         public int lastInt();
-
     }
 
     public abstract static class AbstractKeyProvider<T> implements KeyProvider<T> {
@@ -136,75 +128,13 @@ public class Workload {
         }
     }
 
-    public static class CachedKeyProvider<T> implements KeyProvider<T> {
-
-        private final KeyProvider<T> delegate;
-        private final int percentCached;
-        private final AtomicInteger totalRequests = new AtomicInteger(0);
-        private final AtomicInteger cachedRequests = new AtomicInteger(0);
-        private final List<T> visitedKeys = new ArrayList<T>();
-
-        private CachedKeyProvider(KeyProvider<T> delegate, int percentCached) {
-            this.delegate = delegate;
-            this.percentCached = percentCached;
-        }
-
-        private T getCachedRecord() {
-            int expectedCacheCount = (totalRequests.getAndIncrement() * percentCached) / 100;
-            if(expectedCacheCount >= cachedRequests.get()) {
-                synchronized(visitedKeys) {
-                    if(!visitedKeys.isEmpty()) {
-                        cachedRequests.incrementAndGet();
-                        return visitedKeys.get(new Random().nextInt(visitedKeys.size()));
-                    }
-                }
-            }
-            return null;
-        }
-
-        public T next() {
-            T cachedRecord = getCachedRecord();
-            if(cachedRecord == null) {
-                T value = delegate.next();
-                synchronized(visitedKeys) {
-                    visitedKeys.add(value);
-                }
-                return value;
-            } else {
-                return cachedRecord;
-            }
-        }
-
-        public T next(int maxNumber) {
-            T cachedRecord = getCachedRecord();
-            if(cachedRecord == null) {
-                T value = delegate.next(maxNumber);
-                synchronized(visitedKeys) {
-                    visitedKeys.add(value);
-                }
-                return value;
-            } else {
-                return cachedRecord;
-            }
-        }
-
-        public int lastInt() {
-            return 0;
-        }
-    }
-
-    public static KeyProvider<?> getKeyProvider(Class<?> cls,
-                                                IntegerGenerator generator,
-                                                int percentCached) {
+    public static KeyProvider<?> getKeyProvider(Class<?> cls, IntegerGenerator generator) {
         if(cls == Integer.class) {
-            IntegerKeyProvider kp = new IntegerKeyProvider(generator);
-            return percentCached != 0 ? new CachedKeyProvider<Integer>(kp, percentCached) : kp;
+            return new IntegerKeyProvider(generator);
         } else if(cls == String.class) {
-            StringKeyProvider kp = new StringKeyProvider(generator);
-            return percentCached != 0 ? new CachedKeyProvider<String>(kp, percentCached) : kp;
+            return new StringKeyProvider(generator);
         } else if(cls == byte[].class) {
-            ByteArrayKeyProvider kp = new ByteArrayKeyProvider(generator);
-            return percentCached != 0 ? new CachedKeyProvider<byte[]>(kp, percentCached) : kp;
+            return new ByteArrayKeyProvider(generator);
         } else {
             throw new IllegalArgumentException("No KeyProvider exists for class " + cls);
         }
@@ -263,7 +193,6 @@ public class Workload {
         int mixedPercent = props.getInt(Benchmark.MIXED, 0);
         int valueSize = props.getInt(Benchmark.VALUE_SIZE, 1024);
         this.value = new String(TestUtils.randomBytes(valueSize));
-        int cachedPercent = props.getInt(Benchmark.PERCENT_CACHED, 0);
         String keyType = props.getString(Benchmark.KEY_TYPE, Benchmark.STRING_KEY_TYPE);
         String recordSelection = props.getString(Benchmark.RECORD_SELECTION,
                                                  Benchmark.UNIFORM_RECORD_SELECTION);
@@ -300,13 +229,11 @@ public class Workload {
         } else {
             recordCount = props.getInt(Benchmark.RECORD_COUNT, -1);
         }
-        int opCount = props.getInt(Benchmark.OPS_COUNT);
-
         Class<?> keyTypeClass = getKeyTypeClass(keyType);
         int insertStart = props.getInt(Benchmark.START_KEY_INDEX, 0);
 
         IntegerGenerator warmUpKeySequence = new CounterGenerator(insertStart);
-        this.warmUpKeyProvider = getKeyProvider(keyTypeClass, warmUpKeySequence, 0);
+        this.warmUpKeyProvider = getKeyProvider(keyTypeClass, warmUpKeySequence);
 
         this.transformsChooser = null;
         if(hasTransforms) {
@@ -331,36 +258,16 @@ public class Workload {
             operationChooser.addValue(deleteProportion, Benchmark.DELETES);
         }
 
-        CounterGenerator insertKeySequence = null;
-        if(recordCount > 0) {
-            insertKeySequence = new CounterGenerator(recordCount);
-        } else {
-            Random randomizer = new Random();
-            insertKeySequence = new CounterGenerator(randomizer.nextInt(Integer.MAX_VALUE));
-
-        }
-
         IntegerGenerator keyGenerator = null;
+        int keySpace = (recordCount > 0) ? recordCount : Integer.MAX_VALUE;
         if(recordSelection.compareTo(Benchmark.UNIFORM_RECORD_SELECTION) == 0) {
-
-            int keySpace = (recordCount > 0) ? recordCount : Integer.MAX_VALUE;
             keyGenerator = new UniformIntegerGenerator(0, keySpace - 1);
-
         } else if(recordSelection.compareTo(Benchmark.ZIPFIAN_RECORD_SELECTION) == 0) {
-
-            int expectedNewKeys = (int) (opCount * writeProportion * 2.0);
-            keyGenerator = new ScrambledZipfianGenerator(recordCount + expectedNewKeys);
-
-        } else if(recordSelection.compareTo(Benchmark.LATEST_RECORD_SELECTION) == 0) {
-
-            keyGenerator = new SkewedLatestGenerator(insertKeySequence);
-
+            keyGenerator = new ScrambledZipfianGenerator(keySpace);
         } else if(recordSelection.compareTo(Benchmark.FILE_RECORD_SELECTION) == 0) {
-
             keyGenerator = new FileIntegerGenerator(0, keysFromFile);
-
         }
-        this.keyProvider = getKeyProvider(keyTypeClass, keyGenerator, cachedPercent);
+        this.keyProvider = getKeyProvider(keyTypeClass, keyGenerator);
 
     }
 
