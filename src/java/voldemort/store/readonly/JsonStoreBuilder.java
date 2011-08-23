@@ -625,7 +625,7 @@ public class JsonStoreBuilder {
                                          + Integer.MAX_VALUE + " bytes.");
     }
 
-    private static class KeyValuePairSerializer implements Serializer<KeyValuePair> {
+    public static class KeyValuePairSerializer implements Serializer<KeyValuePair> {
 
         private final MessageDigest digest = ByteUtils.getDigest("MD5");
 
@@ -656,7 +656,7 @@ public class JsonStoreBuilder {
 
     }
 
-    private static class JsonObjectIterator extends AbstractIterator<KeyValuePair> {
+    public static class JsonObjectIterator extends AbstractIterator<KeyValuePair> {
 
         private final JsonReader reader;
         private final Serializer<Object> keySerializer;
@@ -725,7 +725,7 @@ public class JsonStoreBuilder {
 
     }
 
-    private static class KeyValuePair {
+    public static class KeyValuePair {
 
         private final byte[] key;
         private final byte[] keyMd5;
