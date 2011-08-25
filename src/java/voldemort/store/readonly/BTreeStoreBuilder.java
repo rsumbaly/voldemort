@@ -1,6 +1,7 @@
 package voldemort.store.readonly;
 
 import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -11,20 +12,15 @@ import java.nio.ByteBuffer;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
+import java.security.MessageDigest;
 import java.util.HashMap;
-import java.util.List;
+import java.util.Iterator;
 
-import junit.framework.Assert;
-import voldemort.TestUtils;
-import voldemort.store.readonly.JsonStoreBuilder.KeyMd5Comparator;
+import voldemort.VoldemortException;
 import voldemort.store.readonly.JsonStoreBuilder.KeyValuePair;
-import voldemort.store.readonly.JsonStoreBuilder.KeyValuePairSerializer;
-import voldemort.store.readonly.checksum.CheckSum;
-import voldemort.store.readonly.checksum.CheckSum.CheckSumType;
 import voldemort.utils.ByteUtils;
 import voldemort.utils.Utils;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 public class BTreeStoreBuilder {
@@ -43,7 +39,7 @@ public class BTreeStoreBuilder {
 
     public static class BTreeSearcher {
 
-        private CheckSum md5er;
+        private MessageDigest md5er;
         private final HashMap<Integer, MappedByteBuffer> levelToIndexFileBuffers;
         private final HashMap<Integer, Long> levelToIndexFileSizes;
         private final FileChannel dataFile;
@@ -51,7 +47,7 @@ public class BTreeStoreBuilder {
         private long sizeOfBlock;
 
         public BTreeSearcher(File parent, String fileName, long blockSize) throws Exception {
-            this.md5er = CheckSum.getInstance(CheckSumType.MD5);
+            this.md5er = MessageDigest.getInstance("md5");
             this.sizeOfBlock = blockSize;
 
             // Load the data file
@@ -85,29 +81,33 @@ public class BTreeStoreBuilder {
         }
 
         public byte[] getValue(byte[] key) throws IOException {
-            int searchLevel = levels;
-            byte[] keyMD5 = md5er.updateAndGetCheckSum(key, 0, key.length);
-            int startOffset = 0;
-            while(searchLevel > 0) {
-                long indexFileSize = levelToIndexFileSizes.get(searchLevel - 1);
-                startOffset = indexOf(levelToIndexFileBuffers.get(searchLevel - 1),
-                                      keyMD5,
-                                      startOffset,
-                                      (int) indexFileSize,
-                                      (searchLevel - 1 == 0) ? true : false);
-                System.out.println("Offset - " + startOffset);
-                searchLevel--;
+            try {
+                int searchLevel = levels;
+                byte[] keyMD5 = md5er.digest(key);
+                int startOffset = 0;
+                while(searchLevel > 0) {
+                    long indexFileSize = levelToIndexFileSizes.get(searchLevel - 1);
+                    startOffset = indexOf(levelToIndexFileBuffers.get(searchLevel - 1),
+                                          keyMD5,
+                                          startOffset,
+                                          (int) indexFileSize,
+                                          (searchLevel - 1 == 0) ? true : false);
+                    System.out.println("Offset - " + startOffset);
+                    searchLevel--;
+                }
+
+                // Read value size
+                ByteBuffer sizeBuffer = ByteBuffer.allocate(ByteUtils.SIZE_OF_INT);
+                dataFile.read(sizeBuffer, startOffset);
+                int valueSize = sizeBuffer.getInt(0);
+
+                // Read value
+                ByteBuffer valueBuffer = ByteBuffer.allocate(valueSize);
+                dataFile.read(valueBuffer, startOffset + ByteUtils.SIZE_OF_INT);
+                return valueBuffer.array();
+            } finally {
+                md5er.reset();
             }
-
-            // Read value size
-            ByteBuffer sizeBuffer = ByteBuffer.allocate(ByteUtils.SIZE_OF_INT);
-            dataFile.read(sizeBuffer, startOffset);
-            int valueSize = sizeBuffer.getInt(0);
-
-            // Read value
-            ByteBuffer valueBuffer = ByteBuffer.allocate(valueSize);
-            dataFile.read(valueBuffer, startOffset + ByteUtils.SIZE_OF_INT);
-            return valueBuffer.array();
         }
 
         public int indexOf(ByteBuffer index,
@@ -179,8 +179,18 @@ public class BTreeStoreBuilder {
      * @throws IOException
      */
     void build(Iterable<KeyValuePair> iterable) throws IOException {
+        build(iterable.iterator());
+    }
+
+    /**
+     * In sorted md5 key order
+     * 
+     * @throws IOException
+     */
+    void build(Iterator<KeyValuePair> iterator) throws IOException {
         try {
-            for(KeyValuePair pair: iterable) {
+            while(iterator.hasNext()) {
+                KeyValuePair pair = iterator.next();
 
                 // Go over every level and make some decisions
                 long currentLevel = 0;
@@ -199,7 +209,7 @@ public class BTreeStoreBuilder {
                     // Increment the offset
                     Long currentOffset = indexOffsetPerLevel.get(currentLevel);
                     previousLevelOffset = currentOffset.longValue();
-                    currentOffset += (CheckSum.checkSumLength(CheckSumType.MD5) + ByteUtils.SIZE_OF_INT);
+                    currentOffset += (16 + ByteUtils.SIZE_OF_INT);
                     indexOffsetPerLevel.put(currentLevel, currentOffset);
 
                     if(currentBlockSize > blockSize) {
@@ -249,45 +259,108 @@ public class BTreeStoreBuilder {
     }
 
     public static void main(String args[]) throws Exception {
-        if(args.length != 2) {
-            System.err.println("[root directory] [block size]");
+        if(args.length != 3) {
+            System.err.println("[source file] [destinationdirectory] [block size]");
             System.exit(1);
         }
-        String rootDirectoryPath = args[1];
-        if(!Utils.isReadableDir(rootDirectoryPath)) {
+
+        String sourceFilePath = args[0];
+        String destinationDirectoryPath = args[1];
+        String blockSizeString = args[2];
+
+        if(!Utils.isReadableFile(sourceFilePath) || !Utils.isReadableDir(destinationDirectoryPath)) {
             System.err.println("Directory does not exist or cannot be read");
             System.exit(1);
         }
-        File rootDirectory = new File(rootDirectoryPath);
-        long blockSize = Long.parseLong(args[2]);
-        BTreeStoreBuilder builder = new BTreeStoreBuilder(rootDirectory, "blah", blockSize);
+        File sourceDirectory = new File(sourceFilePath);
+        File destinationDirectory = new File(destinationDirectoryPath);
+        long blockSize = Long.parseLong(blockSizeString);
+        BTreeStoreBuilder builder = new BTreeStoreBuilder(destinationDirectory, "blah", blockSize);
 
-        List<KeyValuePair> tuples = Lists.newArrayList();
-        CheckSum checksum = CheckSum.getInstance(CheckSumType.MD5);
-        for(int i = 0; i < 100000; i++) {
-            byte[] key = new byte[ByteUtils.SIZE_OF_INT];
-            ByteUtils.writeInt(key, i, 0);
-            byte[] md5key = checksum.updateAndGetCheckSum(key, 0, key.length);
-            byte[] value = TestUtils.randomBytes(100);
-            tuples.add(new KeyValuePair(key, md5key, value));
-        }
+        final DataInputStream reader = new DataInputStream(new FileInputStream(sourceDirectory));
+        final MessageDigest digest = MessageDigest.getInstance("md5");
+        builder.build(new Iterator<KeyValuePair>() {
 
-        ExternalSorter<KeyValuePair> sorter = new ExternalSorter<KeyValuePair>(new KeyValuePairSerializer(),
-                                                                               new KeyMd5Comparator(),
-                                                                               1000,
-                                                                               TestUtils.createTempDir()
-                                                                                        .getAbsolutePath(),
-                                                                               1000000,
-                                                                               10,
-                                                                               false);
-        builder.build(sorter.sorted(tuples.iterator()));
+            public boolean hasNext() {
+                try {
+                    return reader.available() > 0;
+                } catch(IOException e) {
+                    e.printStackTrace();
+                    return false;
+                }
+            }
 
-        BTreeSearcher searcher = new BTreeSearcher(rootDirectory, "blah", blockSize);
-        for(KeyValuePair tuple: tuples) {
-            System.out.println("Search - " + ByteUtils.readInt(tuple.getKey(), 0) + " - "
-                               + ByteUtils.toHexString(tuple.getKeyMd5()));
-            Assert.assertEquals(ByteUtils.compare(tuple.getValue(),
-                                                  searcher.getValue(tuple.getKey())), 0);
-        }
+            public KeyValuePair next() {
+                try {
+                    String line;
+                    try {
+                        line = reader.readLine();
+                    } catch(IOException e) {
+                        return null;
+                    }
+                    if(line != null) {
+                        String[] tuples = line.split("\t");
+                        byte[] keyBytes = tuples[0].getBytes();
+                        byte[] valueBytes = tuples[1].getBytes();
+                        return new KeyValuePair(keyBytes, digest.digest(keyBytes), valueBytes);
+                    }
+                    return null;
+                } finally {
+                    digest.reset();
+                }
+            }
+
+            public void remove() {
+                throw new VoldemortException("Do not support remove");
+            }
+        });
+
     }
+
+    // public static void main(String args[]) throws Exception {
+    // if(args.length != 2) {
+    // System.err.println("[root directory] [block size]");
+    // System.exit(1);
+    // }
+    // String rootDirectoryPath = args[1];
+    // if(!Utils.isReadableDir(rootDirectoryPath)) {
+    // System.err.println("Directory does not exist or cannot be read");
+    // System.exit(1);
+    // }
+    // File rootDirectory = new File(rootDirectoryPath);
+    // long blockSize = Long.parseLong(args[2]);
+    // BTreeStoreBuilder builder = new BTreeStoreBuilder(rootDirectory, "blah",
+    // blockSize);
+    //
+    // List<KeyValuePair> tuples = Lists.newArrayList();
+    // CheckSum checksum = CheckSum.getInstance(CheckSumType.MD5);
+    // for(int i = 0; i < 100000; i++) {
+    // byte[] key = new byte[ByteUtils.SIZE_OF_INT];
+    // ByteUtils.writeInt(key, i, 0);
+    // byte[] md5key = checksum.updateAndGetCheckSum(key, 0, key.length);
+    // byte[] value = TestUtils.randomBytes(100);
+    // tuples.add(new KeyValuePair(key, md5key, value));
+    // }
+    //
+    // ExternalSorter<KeyValuePair> sorter = new
+    // ExternalSorter<KeyValuePair>(new KeyValuePairSerializer(),
+    // new KeyMd5Comparator(),
+    // 1000,
+    // TestUtils.createTempDir()
+    // .getAbsolutePath(),
+    // 1000000,
+    // 10,
+    // false);
+    // builder.build(sorter.sorted(tuples.iterator()));
+    //
+    // BTreeSearcher searcher = new BTreeSearcher(rootDirectory, "blah",
+    // blockSize);
+    // for(KeyValuePair tuple: tuples) {
+    // System.out.println("Search - " + ByteUtils.readInt(tuple.getKey(), 0) +
+    // " - "
+    // + ByteUtils.toHexString(tuple.getKeyMd5()));
+    // Assert.assertEquals(ByteUtils.compare(tuple.getValue(),
+    // searcher.getValue(tuple.getKey())), 0);
+    // }
+    // }
 }
