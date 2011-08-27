@@ -47,6 +47,7 @@ public class AbstractBTreeStoreBuilderConfigurable {
         if(storeDefs.size() != 1)
             throw new IllegalStateException("Expected to find only a single store, but found multiple!");
         this.storeDef = storeDefs.get(0);
+        this.numChunks = conf.getInt("num.chunks", 1);
     }
 
     @SuppressWarnings("unused")

@@ -19,6 +19,7 @@ package voldemort.store.btree.mr;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.mapred.Partitioner;
 
+import voldemort.store.readonly.ReadOnlyUtils;
 import voldemort.utils.ByteUtils;
 
 /**
@@ -27,14 +28,17 @@ import voldemort.utils.ByteUtils;
  * store chunk)
  */
 @SuppressWarnings("deprecation")
-public class HadoopBTreeStoreBuilderPartitioner extends AbstractBTreeStoreBuilderConfigurable implements
-        Partitioner<BytesWritable, BytesWritable> {
+public class HadoopBTreeStoreBuilderPartitioner extends AbstractBTreeStoreBuilderConfigurable
+        implements Partitioner<BytesWritable, BytesWritable> {
 
     public int getPartition(BytesWritable key, BytesWritable value, int numReduceTasks) {
         int partitionId = ByteUtils.readInt(value.get(), ByteUtils.SIZE_OF_INT);
+        int chunkId = ReadOnlyUtils.chunk(key.get(), getNumChunks());
         int replicaType = (int) ByteUtils.readBytes(value.get(),
                                                     2 * ByteUtils.SIZE_OF_INT,
                                                     ByteUtils.SIZE_OF_BYTE);
-        return (partitionId * getStoreDef().getReplicationFactor() + replicaType) % numReduceTasks;
+        return ((partitionId * getStoreDef().getReplicationFactor() * getNumChunks())
+                + (replicaType * getNumChunks()) + chunkId)
+               % numReduceTasks;
     }
 }

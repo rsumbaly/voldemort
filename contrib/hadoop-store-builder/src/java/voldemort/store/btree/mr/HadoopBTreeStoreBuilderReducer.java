@@ -201,10 +201,10 @@ public class HadoopBTreeStoreBuilderReducer extends AbstractBTreeStoreBuilderCon
             this.outputPath = FileOutputFormat.getOutputPath(job);
             this.taskValueFileName = new Path(outputPath, getStoreName() + "." + this.taskId
                                                           + ".data");
-            this.valueFileStream = fs.create(this.taskValueFileName);
-
             if(this.fs == null)
                 this.fs = this.taskValueFileName.getFileSystem(job);
+
+            this.valueFileStream = fs.create(this.taskValueFileName);
 
             this.maxLevel = 0;
 
