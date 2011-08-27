@@ -65,6 +65,7 @@ public class HadoopBTreeStoreBuilder {
     private final Path inputPath;
     private final Path outputDir;
     private final Path tempDir;
+    private final int numChunks;
 
     /**
      * Create the store builder
@@ -81,13 +82,14 @@ public class HadoopBTreeStoreBuilder {
      */
     @SuppressWarnings("unchecked")
     public HadoopBTreeStoreBuilder(Configuration conf,
-                                 Class<? extends AbstractHadoopBTreeStoreBuilderMapper<?, ?>> mapperClass,
-                                 Class<? extends InputFormat> inputFormatClass,
-                                 Cluster cluster,
-                                 StoreDefinition storeDef,
-                                 Path tempDir,
-                                 Path outputDir,
-                                 Path inputPath) {
+                                   Class<? extends AbstractHadoopBTreeStoreBuilderMapper<?, ?>> mapperClass,
+                                   Class<? extends InputFormat> inputFormatClass,
+                                   Cluster cluster,
+                                   StoreDefinition storeDef,
+                                   Path tempDir,
+                                   Path outputDir,
+                                   Path inputPath,
+                                   int numChunks) {
         super();
         this.config = conf;
         this.mapperClass = Utils.notNull(mapperClass);
@@ -97,6 +99,7 @@ public class HadoopBTreeStoreBuilder {
         this.storeDef = Utils.notNull(storeDef);
         this.tempDir = tempDir;
         this.outputDir = Utils.notNull(outputDir);
+        this.numChunks = numChunks;
     }
 
     /**
@@ -123,6 +126,7 @@ public class HadoopBTreeStoreBuilder {
             FileInputFormat.setInputPaths(conf, inputPath);
             conf.set("final.output.dir", outputDir.toString());
             FileOutputFormat.setOutputPath(conf, tempDir);
+            conf.setInt("num.chunks", numChunks);
 
             FileSystem outputFs = outputDir.getFileSystem(conf);
             if(outputFs.exists(outputDir)) {
@@ -139,10 +143,11 @@ public class HadoopBTreeStoreBuilder {
                         + cluster.getNumberOfNodes());
 
             // Derive "rough" number of chunks and reducers
-            int numReducers = cluster.getNumberOfPartitions() * storeDef.getReplicationFactor();
+            int numReducers = cluster.getNumberOfPartitions() * storeDef.getReplicationFactor()
+                              * numChunks;
             conf.setNumReduceTasks(numReducers);
 
-            logger.info("Number of reducer: " + numReducers);
+            logger.info("Number of reducer: " + numReducers + " , chunks: " + numChunks);
             logger.info("Building store...");
             JobClient.runJob(conf);
 
@@ -151,7 +156,7 @@ public class HadoopBTreeStoreBuilder {
 
                 ReadOnlyStorageMetadata metadata = new ReadOnlyStorageMetadata();
 
-                metadata.add(ReadOnlyStorageMetadata.FORMAT, ReadOnlyStorageFormat.BDB.getCode());
+                metadata.add(ReadOnlyStorageMetadata.FORMAT, ReadOnlyStorageFormat.BTREE.getCode());
 
                 Path nodePath = new Path(outputDir.toString(), "node-" + node.getId());
 

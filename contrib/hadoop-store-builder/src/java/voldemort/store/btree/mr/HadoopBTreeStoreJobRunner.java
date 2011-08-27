@@ -70,6 +70,7 @@ public class HadoopBTreeStoreJobRunner extends Configured implements Tool {
         parser.accepts("storename", "store name from store definition.").withRequiredArg();
         parser.accepts("inputformat", "JavaClassName (default=text).").withRequiredArg();
         parser.accepts("jar", "mapper class jar if not in $HADOOP_CLASSPATH.").withRequiredArg();
+        parser.accepts("chunks", "number of chunks ( overrides the chunk size )");
         parser.accepts("help", "print usage information");
         return parser;
     }
@@ -102,7 +103,7 @@ public class HadoopBTreeStoreJobRunner extends Configured implements Tool {
 
         File clusterFile = new File((String) options.valueOf("cluster"));
         Cluster cluster = new ClusterMapper().readCluster(new BufferedReader(new FileReader(clusterFile)));
-
+        int chunks = CmdUtils.valueOf(options, "chunks", 1);
         File storeDefFile = new File((String) options.valueOf("storedefinitions"));
         String storeName = (String) options.valueOf("storename");
         List<StoreDefinition> stores;
@@ -129,7 +130,7 @@ public class HadoopBTreeStoreJobRunner extends Configured implements Tool {
         }
 
         Class<? extends AbstractHadoopBTreeStoreBuilderMapper<?, ?>> mapperClass = (Class<? extends AbstractHadoopBTreeStoreBuilderMapper<?, ?>>) ReflectUtils.loadClass((String) options.valueOf("mapper"),
-                                                                                                                                                                     cl);
+                                                                                                                                                                         cl);
 
         Class<? extends InputFormat<?, ?>> inputFormatClass = TextInputFormat.class;
         if(options.has("inputformat")) {
@@ -158,13 +159,14 @@ public class HadoopBTreeStoreJobRunner extends Configured implements Tool {
         addDepJars(conf, deps, addJars);
 
         HadoopBTreeStoreBuilder builder = new HadoopBTreeStoreBuilder(conf,
-                                                                  mapperClass,
-                                                                  inputFormatClass,
-                                                                  cluster,
-                                                                  storeDef,
-                                                                  tempDir,
-                                                                  outputDir,
-                                                                  inputPath);
+                                                                      mapperClass,
+                                                                      inputFormatClass,
+                                                                      cluster,
+                                                                      storeDef,
+                                                                      tempDir,
+                                                                      outputDir,
+                                                                      inputPath,
+                                                                      chunks);
 
         builder.build();
         return 0;

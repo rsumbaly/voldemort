@@ -222,6 +222,9 @@ public class HadoopBTreeStoreBuilderReducer extends AbstractBTreeStoreBuilderCon
             this.indexBlockSizePerLevel = Maps.newHashMap();
             this.indexBlockSizePerLevel.put(maxLevel, 0L);
 
+            logger.info("Opening " + this.taskValueFileName + " and " + this.indexPaths.get(0L)
+                        + " for writing.");
+
         } catch(IOException e) {
             throw new RuntimeException("Failed to open Input/OutputStream", e);
         }

@@ -17,6 +17,7 @@
 package voldemort.store.btree.mr;
 
 import java.io.IOException;
+import java.security.MessageDigest;
 import java.util.List;
 
 import org.apache.hadoop.io.BytesWritable;
@@ -49,6 +50,7 @@ import voldemort.utils.ByteUtils;
 public abstract class AbstractHadoopBTreeStoreBuilderMapper<K, V> extends
         AbstractBTreeStoreBuilderConfigurable implements Mapper<K, V, BytesWritable, BytesWritable> {
 
+    protected MessageDigest md5er;
     protected ConsistentRoutingStrategy routingStrategy;
     protected Serializer<Object> keySerializer;
     protected Serializer<Object> valueSerializer;
@@ -117,7 +119,9 @@ public abstract class AbstractHadoopBTreeStoreBuilderMapper<K, V> extends
         System.arraycopy(valBytes, 0, outputValue, offsetTillNow, valBytes.length);
 
         // Generate MR key - 16 byte md5
-        outputKey = new BytesWritable(keyBytes);
+        outputKey = new BytesWritable(ByteUtils.copy(md5er.digest(keyBytes),
+                                                     0,
+                                                     2 * ByteUtils.SIZE_OF_INT));
 
         // Generate partition and node list this key is destined for
         List<Integer> partitionList = routingStrategy.getPartitionList(keyBytes);
@@ -144,6 +148,7 @@ public abstract class AbstractHadoopBTreeStoreBuilderMapper<K, V> extends
             output.collect(outputKey, outputVal);
 
         }
+        md5er.reset();
     }
 
     @Override
@@ -151,6 +156,7 @@ public abstract class AbstractHadoopBTreeStoreBuilderMapper<K, V> extends
     public void configure(JobConf conf) {
         super.configure(conf);
 
+        md5er = ByteUtils.getDigest("md5");
         keySerializerDefinition = getStoreDef().getKeySerializer();
         valueSerializerDefinition = getStoreDef().getValueSerializer();
 
